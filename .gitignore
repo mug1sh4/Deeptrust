@@ -1,0 +1,16 @@
+# model files are too large for GitHub (use releases or Git LFS)
+models/*.keras
+models/*.joblib
+
+# generated files
+results/previews/*.png
+__pycache__/
+*.pyc
+.env
+myenv/
+venv/
+*.egg-info/
+
+# system files
+.DS_Store
+Thumbs.db

@@ -737,7 +737,7 @@ def fhash(b):
 #   These ensure the AE receives the same feature scale it was trained on.
 
 
-# ── Google Drive file IDs for Streamlit Cloud deployment ─────────────
+# Google Drive file IDs for Streamlit Cloud deployment
 # On your laptop the models/ folder exists so download is skipped.
 # On Streamlit Cloud the folder is empty — files are downloaded here.
 _GDRIVE_IDS = {
@@ -769,7 +769,7 @@ def _ensure_models():
     for filename in missing:
         fid  = _GDRIVE_IDS[filename]
         dest = os.path.join("models", filename)
-        st.toast(f"Downloading {filename}...")
+        print(f"[DEEPTRUST] Downloading {filename}...")
         gdown.download(
             f"https://drive.google.com/uc?id={fid}",
             dest, quiet=False)

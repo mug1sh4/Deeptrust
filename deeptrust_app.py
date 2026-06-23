@@ -25,15 +25,6 @@ from datetime import datetime   # Captures the exact timestamp when a scan is pe
 from PIL import Image           # Python Imaging Library — opens, resizes, and converts uploaded images
 
 
-# Auto-download models on Streamlit Cloud 
-import pickle
-try:
-    from download_models import download_models
-    download_models()
-except Exception as _dl_err:
-    pass  # download_models.py not present or IDs not filled in — local mode
-
-
 
 # SECTION 2: ENVIRONMENT VARIABLES
 # Sensitive credentials (like API keys) should never be hardcoded into source code. Instead they are stored in a .env file on the developer's machine.
@@ -63,6 +54,8 @@ st.set_page_config(
 # SECTION 4: SESSION STATE INITIALISATION
 # Streamlit reruns the entire script from top to bottom every time the user clicks a button or uploads a file. Session state is how we preserve data across those reruns — like a short-term memory for the app.
 # Each variable below is only set if it does not already exist, so existing values are never accidentally overwritten on rerun.
+
+
 for k, v in dict(
     page         = "input",   # Which page to show: "input", "output", or "error"
     dark_mode    = False,     # Light mode by default — user can toggle
@@ -188,11 +181,13 @@ T = DARK if st.session_state.dark_mode else LIGHT
 
 # SECTION 6: GLOBAL CSS STYLES
 # Streamlit's default appearance is plain and unstyled.
-# This block injects custom CSS into the browser to make DEEPTRUST look professional — custom fonts, colours, buttons, cards, verdict banners,
+# This block injects custom CSS into the browser to make DEEPTRUST look
+# professional — custom fonts, colours, buttons, cards, verdict banners,
 # progress bars, forensic log, and AI summary box.
 #
 # st.markdown(..., unsafe_allow_html=True) is required to inject raw HTML/CSS.
-# The f-string (f"""...""") lets us embed Python variables (T["key"]) directly into the CSS so colours change automatically when the theme switches.
+# The f-string (f"""...""") lets us embed Python variables (T["key"]) directly
+# into the CSS so colours change automatically when the theme switches.
 #
 # CSS class naming convention used throughout:
 #   .topbar / .navbar — top navigation bar
@@ -965,9 +960,18 @@ def run_inference(pil_img, mode):
     ov_tier = None 
 
     # CNN Gate (Tier 0a)
-    # If CNN scores below 20%, it is extremely confident the face is real.
+    # Widened to 50% — when CNN is below 50% AND AE is below 0.032, both branches individually say REAL. The meta-learner should not
+    # override two REAL signals. This handles cross-platform CPU
+    # calibration differences between Windows oneDNN and Linux TF.
+    if (cnn_raw < 0.50 and ae_err < 0.032 and verdict == "FAKE"):
+        verdict = "REAL"
+        fp      = fp * 0.3
+        conf    = (1 - fp) * 100
+        ov_tier = "gate"
+
+    # Strict CNN gate — CNN extremely confident REAL (< 20%)
     # AE false positives from screenshot compression cannot override this.
-    if cnn_raw < 0.20 and verdict == "FAKE":
+    elif cnn_raw < 0.20 and verdict == "FAKE":
         verdict = "REAL"
         fp      = fp * 0.3
         conf    = (1 - fp) * 100
@@ -1242,14 +1246,26 @@ Rules:
             f"evade detection. Independent expert forensic analysis is recommended."
         )
 
-    # Override Tier 0 — CNN gate fired
+    # Gate or tier override fired — verdict was changed to REAL
     if not is_fake and ov in (0, "gate"):
+        # Explain what actually happened — CNN was confident enough to override
+        ae_note = (
+            f"Although the Autoencoder recorded a reconstruction error of {ae} "
+            f"— slightly above the 0.025 baseline — "
+            if ae > 0.025 else
+            f"The Autoencoder error of {ae} is within the 0.025 baseline. "
+        )
         return "LOCAL", (
-            f"DEEPTRUST classified this image as authentic at {conf}% confidence. "
-            f"The CNN scored {cnn}% — an extremely low value indicating very strong "
-            f"authentic face signals. The CNN's confidence was high enough to "
-            f"override the initial assessment, a pattern seen with compressed or "
-            f"screen-captured images where the face itself is clearly authentic."
+            f"The CNN spotter scored {cnn}%, which is below the 50% manipulation "
+            f"threshold — meaning the CNN is confident this face is authentic. "
+            f"{ae_note}"
+            f"The CNN confidence gate overrode the initial assessment: "
+            f"when both the CNN score and the overall confidence pattern point to "
+            f"an authentic face, DEEPTRUST trusts the CNN signal. "
+            f"DEEPTRUST classifies this image as authentic at {conf}% confidence. "
+            f"The Grad-CAM heatmap shows highest activity on the "
+            f"{top[0][0].lower()} at {ts}%, which is within normal range "
+            f"for authentic faces."
         )
 
     # FAKE cases
@@ -1296,17 +1312,25 @@ Rules:
         )
         return "LOCAL", f"{cnn_sent} {ae_sent} {agree} {gradcam} {conclusion}"
 
-    # REAL cases
+    # REAL cases — no gate fired, standard clean REAL
     else:
         cnn_sent = (
             f"The CNN spotter scored {cnn}%, which is below the 50% "
             f"manipulation threshold — no significant manipulation patterns detected."
         )
-        ae_sent = (
-            f"The Autoencoder error of {ae} is within the authentic face "
-            f"baseline of ~0.025, confirming the face's internal CNN feature "
-            f"patterns match genuine facial structure."
-        )
+        # AE sentence depends on whether AE is clean or slightly elevated
+        if ae > 0.025:
+            ae_sent = (
+                f"The Autoencoder error of {ae} is slightly above the 0.025 "
+                f"baseline, but combined with the CNN score both branches "
+                f"point toward an authentic image."
+            )
+        else:
+            ae_sent = (
+                f"The Autoencoder error of {ae} is within the authentic face "
+                f"baseline of 0.025, confirming the face's internal CNN feature "
+                f"patterns match genuine facial structure."
+            )
         gradcam = (
             f"The Grad-CAM heatmap showed the highest activity on the "
             f"{top[0][0].lower()} at {ts}%, which is within normal range "

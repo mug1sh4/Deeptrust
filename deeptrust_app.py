@@ -27,7 +27,8 @@ from PIL import Image           # Python Imaging Library — opens, resizes, and
 
 
 # SECTION 2: ENVIRONMENT VARIABLES
-# Sensitive credentials (like API keys) should never be hardcoded into source code. Instead they are stored in a .env file on the developer's machine.
+# Sensitive credentials (like API keys) should never be hardcoded into source
+# code. Instead they are stored in a .env file on the developer's machine.
 # This block safely loads that file if it exists. If not, the app still works.
 try:
     from dotenv import load_dotenv  # python-dotenv reads key=value pairs from .env
@@ -736,10 +737,51 @@ def fhash(b):
 #   These ensure the AE receives the same feature scale it was trained on.
 
 
+# ── Google Drive file IDs for Streamlit Cloud deployment ─────────────
+# On your laptop the models/ folder exists so download is skipped.
+# On Streamlit Cloud the folder is empty — files are downloaded here.
+_GDRIVE_IDS = {
+    "deeptrust_spotter_v2_final.keras": "1fTyQbF0QoDBeaPFByvjVRZwGjHXEkzgx",
+    "deeptrust_seq_ae.keras":           "1_fva2iyObUNglA3b5JCbtUs4DI_JQ3Ft",
+    "deeptrust_meta_seq_cpu.joblib":    "17YZ8UwFtNGT16CA7PN0KtNgsxgCYNygv",
+    "deeptrust_scaler_seq_cpu.joblib":  "1NsM4WODawIZfh9Rh1Ihvk6iGT5UgGDQH",
+    "feat_min.npy":                     "1byUsak_0MO4xRlUXOjxKnHqi42ZdFeDy",
+    "feat_max.npy":                     "1vsffmkA4ALjjCgprxBVRlFpqvc_Zw7Vy",
+}
+
+def _ensure_models():
+    """Download missing model files from Google Drive before loading."""
+    import os
+    os.makedirs("models", exist_ok=True)
+    missing = [
+        f for f in _GDRIVE_IDS
+        if not os.path.exists(os.path.join("models", f))
+    ]
+    if not missing:
+        return  # all files present — laptop mode
+    try:
+        import gdown
+    except ImportError:
+        import subprocess, sys
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "gdown", "-q"])
+        import gdown
+    for filename in missing:
+        fid  = _GDRIVE_IDS[filename]
+        dest = os.path.join("models", filename)
+        st.toast(f"Downloading {filename}...")
+        gdown.download(
+            f"https://drive.google.com/uc?id={fid}",
+            dest, quiet=False)
+
+
 @st.cache_resource
 def load_models():
     import tensorflow as tf
     import pickle
+
+    # Download models from Google Drive if running on Streamlit Cloud
+    _ensure_models()
 
     # Stage 1: CNN Spotter — Xception pretrained on ImageNet, fine-tuned on FF++
     cnn = tf.keras.models.load_model(
@@ -960,7 +1002,8 @@ def run_inference(pil_img, mode):
     ov_tier = None 
 
     # CNN Gate (Tier 0a)
-    # Widened to 50% — when CNN is below 50% AND AE is below 0.032, both branches individually say REAL. The meta-learner should not
+    # Widened to 50% — when CNN is below 50% AND AE is below 0.032,
+    # both branches individually say REAL. The meta-learner should not
     # override two REAL signals. This handles cross-platform CPU
     # calibration differences between Windows oneDNN and Linux TF.
     if (cnn_raw < 0.50 and ae_err < 0.032 and verdict == "FAKE"):

@@ -1001,24 +1001,43 @@ def run_inference(pil_img, mode):
 
     ov_tier = None 
 
-    # CNN Gate (Tier 0a)
-    # Widened to 50% — when CNN is below 50% AND AE is below 0.032,
-    # both branches individually say REAL. The meta-learner should not
-    # override two REAL signals. This handles cross-platform CPU
-    # calibration differences between Windows oneDNN and Linux TF.
-    if (cnn_raw < 0.50 and ae_err < 0.032 and verdict == "FAKE"):
-        verdict = "REAL"
-        fp      = fp * 0.3
-        conf    = (1 - fp) * 100
-        ov_tier = "gate"
+    # ── CNN Confidence Gates ─────────────────────────────────────────
+    # Gate logic uses BOTH CNN and AE thresholds together.
+    # A CNN below 20% alone is NOT sufficient to override — the AE must
+    # also confirm the face is clean (ae_err < 0.035).
+    # This prevents animated AI-generated images (GPT, DALL-E, etc.) from
+    # slipping through when CNN is fooled by their non-photorealistic style
+    # but AE still detects anomalous CNN feature patterns.
+    #
+    # Threshold summary:
+    #   ae_err < 0.028 = clean real face signal
+    #   ae_err 0.028-0.035 = borderline — only gate fires if CNN < 20%
+    #   ae_err > 0.035 = elevated — gate never fires, meta-learner decides
 
-    # Strict CNN gate — CNN extremely confident REAL (< 20%)
-    # AE false positives from screenshot compression cannot override this.
-    elif cnn_raw < 0.20 and verdict == "FAKE":
-        verdict = "REAL"
-        fp      = fp * 0.3
-        conf    = (1 - fp) * 100
-        ov_tier = "gate"
+    if verdict == "FAKE":
+        if cnn_raw < 0.20 and ae_err < 0.035:
+            # CNN extremely confident REAL AND AE is clean/borderline
+            # → WhatsApp selfies, screenshots, compressed photos → REAL
+            verdict = "REAL"
+            fp      = fp * 0.3
+            conf    = (1 - fp) * 100
+            ov_tier = "gate"
+
+        elif cnn_raw < 0.20 and ae_err >= 0.035:
+            # CNN says real but AE is significantly elevated
+            # → likely animated/AI-generated synthetic face → keep FAKE
+            # Gate does NOT fire — AE signal trusted over CNN
+            ov_tier = "ae_override"
+
+        elif 0.20 <= cnn_raw < 0.50 and ae_err < 0.028:
+            # CNN in mid-low range AND AE fully clean
+            # Both branches say real → REAL
+            verdict = "REAL"
+            fp      = fp * 0.35
+            conf    = (1 - fp) * 100
+            ov_tier = "gate"
+
+        # else: CNN >= 50% or AE elevated → meta-learner verdict stands
 
     # Tier 0b — Strong CNN REAL + low quality image
     # CNN in the 15-30% range on low-quality images (blurry, dark) is likely a real face that the AE misread due to compression or lighting artifacts.
@@ -1289,23 +1308,44 @@ Rules:
             f"evade detection. Independent expert forensic analysis is recommended."
         )
 
-    # Gate or tier override fired — verdict was changed to REAL
+    # ── Gate or tier override ────────────────────────────────────────
+    # ae_override: CNN was below 20% but AE was elevated (>= 0.035)
+    # Gate did NOT fire — AE signal was trusted over CNN
+    if is_fake and ov == "ae_override":
+        return "LOCAL", (
+            f"The CNN spotter scored {cnn}%, which is below the 50% threshold — "
+            f"meaning the CNN alone would have classified this as authentic. "
+            f"However the CNN confidence gate did not fire because the "
+            f"Autoencoder recorded a reconstruction error of {ae:.4f}, "
+            f"which is significantly above the 0.025 authentic face baseline. "
+            f"This pattern is consistent with AI-generated or animated synthetic "
+            f"images where the visual style fools the CNN but the internal CNN "
+            f"feature patterns still deviate from genuine facial structure. "
+            f"The meta-learner sided with the AE signal and classified this "
+            f"image as a likely deepfake at {conf}% confidence. "
+            f"The Grad-CAM heatmap concentrated activity on "
+            f"{top[0][0].lower()} ({ts}%) — expert review is advised."
+        )
+
+    # Gate fired — verdict was changed to REAL
     if not is_fake and ov in (0, "gate"):
-        # Explain what actually happened — CNN was confident enough to override
         ae_note = (
-            f"Although the Autoencoder recorded a reconstruction error of {ae} "
-            f"— slightly above the 0.025 baseline — "
+            f"Although the Autoencoder recorded a reconstruction error of {ae:.4f} "
+            f"— slightly above the 0.025 baseline — this is consistent with "
+            f"image compression or screen capture artifacts rather than genuine "
+            f"deepfake manipulation. "
             if ae > 0.025 else
-            f"The Autoencoder error of {ae} is within the 0.025 baseline. "
+            f"The Autoencoder error of {ae:.4f} is within the 0.025 baseline, "
+            f"confirming clean facial feature patterns. "
         )
         return "LOCAL", (
             f"The CNN spotter scored {cnn}%, which is below the 50% manipulation "
-            f"threshold — meaning the CNN is confident this face is authentic. "
+            f"threshold — the CNN is confident this face is authentic. "
             f"{ae_note}"
-            f"The CNN confidence gate overrode the initial assessment: "
-            f"when both the CNN score and the overall confidence pattern point to "
-            f"an authentic face, DEEPTRUST trusts the CNN signal. "
-            f"DEEPTRUST classifies this image as authentic at {conf}% confidence. "
+            f"The CNN confidence gate confirmed this verdict: with the CNN "
+            f"strongly indicating an authentic face and the AE error within "
+            f"acceptable limits, DEEPTRUST classifies this image as authentic "
+            f"at {conf}% confidence. "
             f"The Grad-CAM heatmap shows highest activity on the "
             f"{top[0][0].lower()} at {ts}%, which is within normal range "
             f"for authentic faces."
@@ -2096,8 +2136,12 @@ def page_output():
     ov = r.get("ov_tier")
     if ov == "gate":
         log += mklog("CNN_Gate",
-            "CNN < 20% — strong REAL signal, AE override blocked",
+            f"CNN {r['cnn_score']:.1f}% — strong REAL signal, AE within 0.035 baseline",
             ok)
+    elif ov == "ae_override":
+        log += mklog("AE_Override",
+            f"CNN < 20% but AE {r['ae_error']:.4f} elevated — gate blocked, AE trusted",
+            bad)
     elif ov == 0:
         log += mklog("AE_Override",
             "Tier 0b — strong CNN REAL + low quality image", ok)

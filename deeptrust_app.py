@@ -278,8 +278,6 @@ div[data-testid="stMarkdownContainer"] a {{
    Positioned inside the topbar (top:6px left:1.5rem).
    The button IS Streamlit's native toggle so clicking always works.
    We just make it look like a proper nav button instead of ">>" */
-/* Sidebar collapsed toggle — always visible in both light and dark mode.
-   Uses a solid border as fallback in case background fails on some browsers. */
 [data-testid="stSidebarCollapsedControl"] {{
     position: fixed !important;
     top: 6px !important;
@@ -289,21 +287,20 @@ div[data-testid="stMarkdownContainer"] a {{
     visibility: visible !important;
     opacity: 1 !important;
     background: {T['btn_bg']} !important;
-    border: 2px solid {T['btn_bg']} !important;
     border-radius: 6px !important;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.35) !important;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.25) !important;
     padding: 2px !important;
     width: 38px !important;
     height: 38px !important;
     align-items: center !important;
     justify-content: center !important;
 }}
+/* Hide the >> arrow SVG — show hamburger lines instead */
 [data-testid="stSidebarCollapsedControl"] button {{
-    background: {T['btn_bg']} !important;
+    background: transparent !important;
     border: none !important;
-    border-radius: 4px !important;
-    width: 32px !important;
-    height: 32px !important;
+    width: 34px !important;
+    height: 34px !important;
     padding: 0 !important;
     cursor: pointer !important;
     display: flex !important;
@@ -311,19 +308,22 @@ div[data-testid="stMarkdownContainer"] a {{
     justify-content: center !important;
     position: relative !important;
 }}
-/* Hide default SVG arrow */
 [data-testid="stSidebarCollapsedControl"] button svg {{
     display: none !important;
 }}
-/* Hamburger lines — always white because button background is always dark */
+/* Draw hamburger lines using pseudo-elements on the button */
 [data-testid="stSidebarCollapsedControl"] button::before {{
     content: "" !important;
     display: block !important;
-    width: 16px !important;
+    width: 18px !important;
     height: 2px !important;
-    background: #FFFFFF !important;
-    box-shadow: 0 5px 0 #FFFFFF, 0 -5px 0 #FFFFFF !important;
+    background: #ffffff !important;
+    box-shadow: 0 6px 0 #ffffff, 0 -6px 0 #ffffff !important;
     border-radius: 2px !important;
+}}
+/* Sidebar edge collapse button — keep visible */
+section[data-testid="stSidebar"] > div:first-child > div > div {{
+    visibility: visible !important;
 }}
 
 /* Block container width */
@@ -2073,11 +2073,14 @@ def mklog(k, v, s=""):
 
 def inject_button_fix():
     """
-    Late-injected CSS — runs after Streamlit renders its own styles.
-    Ensures primary CTA buttons (Start scan, Analyse) always stay
-    accent background + white text regardless of sidebar overrides.
+    Late-injected CSS — runs on every navbar() call, always fires after
+    Streamlit Cloud's own styles so our overrides always win.
     """
+    # Sidebar button colour — must be here (not global CSS) so it
+    # rerenders after Streamlit Cloud reapplies its own styles.
+    btn = T['btn_bg']   # #1B3A5C light / #1E4E82 dark
     st.markdown(f"""<style>
+    /* Primary CTA buttons */
     .stButton > button[data-testid="baseButton-primary"],
     .stButton > button[kind="primary"] {{
         background-color: {T['accent']} !important;
@@ -2092,6 +2095,59 @@ def inject_button_fix():
     .stButton > button[kind="primary"] p,
     .stButton > button[kind="primary"] span {{
         color: #FFFFFF !important;
+    }}
+    /* Sidebar toggle — injected late so Cloud styles cannot override */
+    [data-testid="stSidebarCollapsedControl"] {{
+        position: fixed !important;
+        top: 6px !important;
+        left: 1.2rem !important;
+        z-index: 99999 !important;
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        background: {btn} !important;
+        border: 2px solid {btn} !important;
+        border-radius: 6px !important;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.4) !important;
+        width: 38px !important;
+        height: 38px !important;
+        align-items: center !important;
+        justify-content: center !important;
+        padding: 0 !important;
+    }}
+    [data-testid="stSidebarCollapsedControl"] > div {{
+        background: {btn} !important;
+        width: 38px !important;
+        height: 38px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }}
+    [data-testid="stSidebarCollapsedControl"] button {{
+        background: {btn} !important;
+        border: none !important;
+        border-radius: 4px !important;
+        width: 38px !important;
+        height: 38px !important;
+        padding: 0 !important;
+        cursor: pointer !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        position: relative !important;
+    }}
+    [data-testid="stSidebarCollapsedControl"] button svg {{
+        display: none !important;
+    }}
+    [data-testid="stSidebarCollapsedControl"] button::before {{
+        content: "" !important;
+        display: block !important;
+        width: 16px !important;
+        height: 2px !important;
+        background: #FFFFFF !important;
+        box-shadow: 0 5px 0 #FFFFFF, 0 -5px 0 #FFFFFF !important;
+        border-radius: 2px !important;
+        position: absolute !important;
     }}
     </style>""", unsafe_allow_html=True)
 

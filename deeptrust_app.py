@@ -280,43 +280,6 @@ div[data-testid="stMarkdownContainer"] a {{
     padding: 0 1.5rem !important;
 }}
 
-/* ── Mobile navbar: force buttons into a 2x2 grid ─────────────────────
-   On phones, Streamlit columns stack vertically making the navbar huge.
-   This CSS forces the first horizontal block (navbar) to stay as a row
-   and wraps into 2 columns max so buttons remain compact. */
-@media (max-width: 640px) {{
-    .block-container {{ padding: 0 0.5rem !important; }}
-
-    /* Force navbar columns to stay in a row and wrap at 2 per line */
-    div[data-testid="stVerticalBlock"] > div:first-child
-    div[data-testid="stHorizontalBlock"] {{
-        flex-wrap: wrap !important;
-        gap: 4px !important;
-        padding: 6px 8px !important;
-    }}
-    div[data-testid="stVerticalBlock"] > div:first-child
-    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {{
-        min-width: calc(50% - 8px) !important;
-        max-width: calc(50% - 8px) !important;
-        flex: 0 0 calc(50% - 8px) !important;
-    }}
-    /* First column (logo) takes full width */
-    div[data-testid="stVerticalBlock"] > div:first-child
-    div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child {{
-        min-width: 100% !important;
-        max-width: 100% !important;
-        flex: 0 0 100% !important;
-    }}
-    /* Smaller button text on mobile */
-    div[data-testid="stVerticalBlock"] > div:first-child
-    div[data-testid="stHorizontalBlock"] .stButton > button {{
-        font-size: 11px !important;
-        padding: 6px 8px !important;
-    }}
-    /* Hide tagline on mobile */
-    .logo-sub {{ display: none !important; }}
-}}
-
 /* Prevent column overflow */
 [data-testid="column"] {{ min-width: 0 !important; }}
 
@@ -675,26 +638,64 @@ div[data-testid="stFileUploader"] span {{
 /* Step 4: Mobile responsive — hide desktop nav, show menu popover */
 @media (max-width: 640px) {{
     .block-container {{ padding: 0 0.5rem !important; }}
-    .dt-desktop-nav {{ display: none !important; }}
+    /* Hide the individual nav button columns on mobile */
+    .dt-desktop-nav {{ display: none !important; visibility: hidden !important; height: 0 !important; overflow: hidden !important; }}
     .dt-mobile-nav  {{ display: block !important; }}
     .dt-logo-sub    {{ display: none !important; }}
+    /* Prevent Streamlit columns from stacking — keep navbar as a row */
+    .dt-navbar-wrap [data-testid="column"] {{
+        flex: 0 0 auto !important;
+        min-width: 0 !important;
+        padding: 0 2px !important;
+    }}
 }}
 @media (min-width: 641px) {{
     .dt-desktop-nav {{ display: block !important; }}
-    .dt-mobile-nav  {{ display: none !important; }}
+    .dt-mobile-nav  {{ display: none !important; visibility: hidden !important; height: 0 !important; overflow: hidden !important; }}
 }}
 
-/* Step 5: Popover menu button styling */
+/* Step 5: Popover trigger button styling — light and dark aware */
 div[data-testid="stPopover"] > button {{
     background-color: {T['bg_sec']} !important;
     color: {T['txt2']} !important;
     border: 1px solid {T['border']} !important;
     border-radius: 6px !important;
     font-size: 12px !important;
+    font-weight: 500 !important;
+    padding: 5px 10px !important;
+    width: 100% !important;
 }}
 div[data-testid="stPopover"] > button p,
-div[data-testid="stPopover"] > button span {{
+div[data-testid="stPopover"] > button span,
+div[data-testid="stPopover"] > button div {{
     color: {T['txt2']} !important;
+    background: transparent !important;
+}}
+div[data-testid="stPopover"] > button:hover {{
+    background-color: {T['border']} !important;
+}}
+/* Popover panel background — the dropdown itself */
+div[data-testid="stPopover"] > div[data-testid="stPopoverBody"],
+[data-baseweb="popover"] {{
+    background: {T['bg_card']} !important;
+    border: 1px solid {T['border']} !important;
+    border-radius: 8px !important;
+}}
+/* Text inside the popover panel */
+[data-baseweb="popover"] p,
+[data-baseweb="popover"] span,
+[data-baseweb="popover"] div {{
+    color: {T['txt']} !important;
+}}
+/* Buttons inside the popover panel */
+[data-baseweb="popover"] .stButton > button {{
+    background-color: {T['bg_sec']} !important;
+    color: {T['txt']} !important;
+    border: 1px solid {T['border']} !important;
+}}
+[data-baseweb="popover"] .stButton > button p,
+[data-baseweb="popover"] .stButton > button span {{
+    color: {T['txt']} !important;
 }}
 
 </style>""", unsafe_allow_html=True)
@@ -2560,73 +2561,95 @@ def page_input():
                         st.session_state.upload_id = mk_upload()
 
                     uid   = st.session_state.upload_id
-                    fh    = fhash(raw)                    # SHA-256 fingerprint
-                    fsize = round(len(raw) / 1024, 1)    # size in KB
+                    fh    = fhash(raw)
+                    fsize = round(len(raw) / 1024, 1)
 
-                    # Log upload to TBL_UPLOADS database table
+                    # Log upload to TBL_UPLOADS
                     db_upload(uid, st.session_state.session_id,
                               uploaded.name, fsize, fh)
 
-                    # Session and upload ID chips 
-                    # Show the tracking IDs at the top of the upload section so the user can see their session is registered
+                    # Session + upload ID chips
                     st.markdown(f"""
-                    <div style="margin-bottom:12px">
+                    <div style="margin-bottom:10px">
                         <span class="chip">{st.session_state.session_id}</span>
                         <span class="chip">{uid}</span>
                     </div>""", unsafe_allow_html=True)
 
-                    # File metadata cards
-                    # Three metric boxes showing filename, size, and upload ID
-                    c1, c2, c3 = st.columns(3)
-                    for col, lbl, val, src in [
-                        (c1, "File name", uploaded.name,
-                         "TBL_UPLOADS.File_Name"),
-                        (c2, "File size", f"{fsize} KB",
-                         "TBL_UPLOADS.File_Size"),
-                        (c3, "Upload ID", uid,
-                         "TBL_UPLOADS.Upload_ID"),
-                    ]:
-                        with col:
-                            st.markdown(f"""
-                            <div class="metric">
-                                <div class="m-val"
-                                     style="font-size:13px">{val}</div>
-                                <div class="m-lbl">{lbl}</div>
-                                <div class="m-src">{src}</div>
-                            </div>""", unsafe_allow_html=True)
+                    # Mobile-first upload confirmation layout
+                    # Single column: image centered, metadata, then big scan button
+                    # On desktop this still looks clean; on mobile it's not cramped
+                    st.markdown(f"""
+                    <style>
+                    /* Upload preview card */
+                    .dt-upload-preview {{
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        gap: 12px;
+                        padding: 16px;
+                        background: {T['bg_sec']};
+                        border: 1px solid {T['border']};
+                        border-radius: 10px;
+                        margin-bottom: 14px;
+                        text-align: center;
+                    }}
+                    .dt-upload-preview img {{
+                        border-radius: 8px;
+                        border: 2px solid {T['border']};
+                        max-width: 160px;
+                        width: 100%;
+                    }}
+                    .dt-upload-fname {{
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: {T['txt']};
+                        word-break: break-all;
+                    }}
+                    .dt-upload-meta {{
+                        font-size: 11px;
+                        color: {T['muted']};
+                    }}
+                    .dt-upload-ok {{
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 5px;
+                        font-size: 12px;
+                        font-weight: 600;
+                        color: {T['bar_ok']};
+                        background: {T['real_bg']};
+                        border: 1px solid {T['real_br']};
+                        border-radius: 20px;
+                        padding: 3px 10px;
+                    }}
+                    </style>""", unsafe_allow_html=True)
 
-                    st.markdown("<br>", unsafe_allow_html=True)
+                    # Centered image preview card
+                    img_preview = Image.open(io.BytesIO(raw))
+                    img_preview.thumbnail((160, 160))
 
-                    #  Photo LEFT, Scan button RIGHT — smart layout
-                    # Small thumbnail on left for reference.
-                    # Compact prominent scan button on right.
-                    # No full-width button that obscures the image.
-                    prev_col, btn_col = st.columns([1, 2], gap="medium")
+                    # Convert to base64 for inline HTML display
+                    import base64
+                    buf_img = io.BytesIO()
+                    img_preview.save(buf_img, format="PNG")
+                    b64 = base64.b64encode(buf_img.getvalue()).decode()
 
-                    with prev_col:
-                        img_preview = Image.open(io.BytesIO(raw))
-                        img_preview.thumbnail((110, 110))
-                        st.image(img_preview, caption="Preview", width=110)
+                    st.markdown(f"""
+                    <div class="dt-upload-preview">
+                        <img src="data:image/png;base64,{b64}" alt="Preview"/>
+                        <div>
+                            <div class="dt-upload-fname">{uploaded.name}</div>
+                            <div class="dt-upload-meta">{fsize} KB &nbsp;·&nbsp; {uid}</div>
+                        </div>
+                        <span class="dt-upload-ok">
+                            ✓ &nbsp; Face detected · Ready to scan
+                        </span>
+                    </div>""", unsafe_allow_html=True)
 
-                    with btn_col:
-                        st.markdown(f"""
-                        <div style="padding:8px 0 12px;">
-                            <div style="font-size:13px;font-weight:600;
-                                 color:{T['txt']};margin-bottom:4px;">
-                                Ready to scan</div>
-                            <div style="font-size:12px;color:{T['txt2']};
-                                 line-height:1.6;margin-bottom:14px;">
-                                File validated. Human face detected.<br>
-                                Click Analyse to run the 3-stage AI pipeline.
-                            </div>
-                        </div>""", unsafe_allow_html=True)
-                        scan_pressed = st.button(
-                            "Analyse — is this a deepfake?",
-                            type="primary",
-                            use_container_width=True)
-
-                    st.markdown("<div style='margin-bottom:8px'></div>",
-                                unsafe_allow_html=True)
+                    # Full-width scan button — easy tap on mobile
+                    scan_pressed = st.button(
+                        "🔍 Analyse — is this a deepfake?",
+                        type="primary",
+                        use_container_width=True)
 
                     if scan_pressed:
                         t0 = time.time()

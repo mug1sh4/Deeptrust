@@ -58,16 +58,21 @@ st.set_page_config(
 
 
 for k, v in dict(
-    page         = "input",   # Which page to show: "input", "output", or "error"
-    dark_mode    = False,     # Light mode by default — user can toggle
-    session_id   = None,      # Unique ID for this browser session (set on first load)
-    consent_given= False,     # Privacy consent must be given before scanning (GDPR / Kenya DPA 2019)
-    results      = None,      # Stores the full scan result dict after inference runs
-    upload_id    = None,      # Unique ID for the current uploaded image
-    scan_count   = 0,         # Tracks how many scans done this session (shown in forensic log)
-    db_conn      = None,      # SQLite connection — holds scan logs in memory, wiped on session end
+    page           = "welcome",  # Start on welcome page — new HCI landing page
+    dark_mode      = False,      # Light mode by default — user can toggle
+    session_id     = None,       # Unique ID for this browser session (set on first load)
+    consent_given  = False,      # Privacy consent must be given before scanning (Kenya DPA 2019)
+    results        = None,       # Stores the full scan result dict after inference runs
+    upload_id      = None,       # Unique ID for the current uploaded image
+    scan_count     = 0,          # Tracks how many scans done this session
+    db_conn        = None,       # SQLite connection — in-memory, wiped on session end
+    session_start  = None,       # Timestamp when session began — shown in profile badge
+    scan_history   = None,       # List of past scan summaries for activity log (init to None, converted on first use)
+    show_help      = False,      # Legacy — kept for compatibility
+    page_before_log = None,     # Remember which page to return to from log
+    confirm_new    = False,      # Confirmation state before purging session
 ).items():
-    if k not in st.session_state:   # Only initialise if not already set
+    if k not in st.session_state:
         st.session_state[k] = v
 
 
@@ -331,6 +336,13 @@ div[data-testid="stFileUploader"] span {{
     border-radius: 6px !important;
 }}
 .stSpinner > div {{ border-top-color: {T['accent']} !important; }}
+@keyframes dt-spin {{ to {{ transform: rotate(360deg); }} }}
+.dt-spinner {{
+    width: 44px; height: 44px; border: 4px solid {T['border']};
+    border-top-color: {T['accent']}; border-radius: 50%;
+    animation: dt-spin 0.9s linear infinite;
+    margin: 0 auto 16px;
+}}
 
 /* Top navigation bar 
    Fixed strip at the top showing the DEEPTRUST logo, session info pill,
@@ -531,6 +543,30 @@ div[data-testid="stFileUploader"] span {{
 .pane-lbl {{ text-align:center; font-size:11px; color:{T['muted']};
     padding:5px; border-top:1px solid {T['border']};
     background:{T['bg_sec']}; border-radius:0 0 6px 6px; }}
+.profile-badge {{
+    display: flex; align-items: center; gap: 10px;
+    background: {T['real_bg']}; border: 1px solid {T['real_br']};
+    border-radius: 20px; padding: 5px 12px 5px 6px;
+}}
+.profile-avatar {{
+    width: 28px; height: 28px; background: {T['bar_ok']};
+    border-radius: 50%; display: flex; align-items: center;
+    justify-content: center; flex-shrink: 0;
+    font-size: 13px; font-weight: 700; color: #fff;
+}}
+.profile-id {{
+    font-size: 11px; font-family: 'JetBrains Mono', monospace;
+    font-weight: 600; color: {T['real_txt']};
+}}
+.profile-sub {{
+    font-size: 10px; color: {T['real_sub']}; margin-top: 1px;
+}}
+.profile-badge-inactive {{
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11px; color: {T['muted']};
+    border: 1px solid {T['border']}; border-radius: 20px;
+    padding: 5px 12px;
+}}
 .disclaimer {{ font-size:11px; color:{T['muted']}; text-align:center;
     border-top:1px solid {T['border']};
     padding-top:12px; margin-top:10px; line-height:1.7; }}
@@ -871,12 +907,12 @@ def has_face(img):
 def validate_file(raw, filename):
     #  Check 1: File size
     if len(raw) / (1024*1024) > 10:
-        return False, "File exceeds 10 MB limit."
+        return False, "This file is too large. Please upload an image smaller than 10 MB."
 
     # Check 2: File extension 
     ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
     if ext not in ("jpg", "jpeg", "png", "webp"):
-        return False, f".{ext} not accepted. Use .jpg .png or .webp"
+        return False, f"The file type .{ext} is not supported. Please use a JPG, PNG, or WebP image."
 
     #  Check 3: Magic bytes
     # Every image format has a unique byte signature at the start of the file.
@@ -886,7 +922,7 @@ def validate_file(raw, filename):
     # We read these bytes directly to confirm the file is genuinely an image.
     sigs = {b"\xff\xd8\xff": "jpeg", b"\x89PNG": "png", b"RIFF": "webp"}
     if not any(raw[:len(s)] == s for s in sigs):
-        return False, "File content does not match image format — may be corrupt."
+        return False, "This file does not appear to be a genuine image. It may be corrupted or renamed. Please try a different file."
 
     # Check 4: PIL readability and resolution
     # img.verify() does a deep check of the image structure.
@@ -999,89 +1035,96 @@ def run_inference(pil_img, mode):
     # These tiers correct known failure modes discovered during testing.
     # They fire AFTER the meta-learner, not instead of it.
 
-    ov_tier = None 
+    ov_tier = None
 
-    # ── CNN Confidence Gates ─────────────────────────────────────────
-    # Gate logic uses BOTH CNN and AE thresholds together.
-    # A CNN below 20% alone is NOT sufficient to override — the AE must
-    # also confirm the face is clean (ae_err < 0.035).
-    # This prevents animated AI-generated images (GPT, DALL-E, etc.) from
-    # slipping through when CNN is fooled by their non-photorealistic style
-    # but AE still detects anomalous CNN feature patterns.
+    # Quality-aware override tiers 
+    # Applied after the meta-learner. Three CNN zones, each with
+    # different AE thresholds based on calibration testing.
     #
-    # Threshold summary:
-    #   ae_err < 0.028 = clean real face signal
-    #   ae_err 0.028-0.035 = borderline — only gate fires if CNN < 20%
-    #   ae_err > 0.035 = elevated — gate never fires, meta-learner decides
+    # Zone A (CNN < 0.20): extremely confident REAL signal from CNN
+    #   - AE < 0.035 - gate fires, REAL  (WhatsApp / screenshot protection)
+    #   - AE ≥ 0.035 - gate blocked, FAKE kept  (animated / GPT face)
+    #
+    # Zone B (CNN 0.20–0.50): mid-range CNN + clean AE - both say REAL
+    #   - AE < 0.028 - gate fires, REAL
+    #
+    # Zones C–D (higher CNN): handled by Tier 0b, Tier 1, Tier 2
 
     if verdict == "FAKE":
+
         if cnn_raw < 0.20 and ae_err < 0.035:
-            # CNN extremely confident REAL AND AE is clean/borderline
-            # → WhatsApp selfies, screenshots, compressed photos → REAL
+            # Zone A clean — CNN very confident REAL, AE within safe range
+            # Covers WhatsApp photos, screenshots, compressed images
             verdict = "REAL"
             fp      = fp * 0.3
             conf    = (1 - fp) * 100
             ov_tier = "gate"
 
         elif cnn_raw < 0.20 and ae_err >= 0.035:
-            # CNN says real but AE is significantly elevated
-            # → likely animated/AI-generated synthetic face → keep FAKE
-            # Gate does NOT fire — AE signal trusted over CNN
-            ov_tier = "ae_override"
+            # Zone A elevated — CNN says real but AE significantly elevated
+            # Split by CNN floor:
+            #   CNN < 7%  - extremely strong REAL signal, AE cannot override
+            #              (0.35% CNN on a selfie is categorically different
+            #               from 15% CNN on an ambiguous image)
+            #   CNN 7-20% - genuinely ambiguous, trust the AE (animated/GPT face)
+            if cnn_raw < 0.07:
+                # CNN floor — too strong a REAL signal for AE to override
+                verdict = "REAL"
+                fp      = fp * 0.3
+                conf    = (1 - fp) * 100
+                ov_tier = "gate"
+            else:
+                # AE override — CNN has some fake signal, AE elevation meaningful
+                ov_tier = "ae_override"
 
         elif 0.20 <= cnn_raw < 0.50 and ae_err < 0.028:
-            # CNN in mid-low range AND AE fully clean
-            # Both branches say real → REAL
+            # Zone B — both branches point to REAL → override
             verdict = "REAL"
             fp      = fp * 0.35
             conf    = (1 - fp) * 100
             ov_tier = "gate"
 
-        # else: CNN >= 50% or AE elevated → meta-learner verdict stands
+        # Tier 0b — Strong CNN REAL + low quality image
+        # CNN 15-30% on blurry/dark image - AE misread due to artifacts
+        elif (0.15 <= cnn_raw < 0.30
+                and fp < 0.65
+                and is_low_quality):
+            verdict = "REAL"
+            fp      = fp * 0.4
+            conf    = (1 - fp) * 100
+            ov_tier = 0
 
-    # Tier 0b — Strong CNN REAL + low quality image
-    # CNN in the 15-30% range on low-quality images (blurry, dark) is likely a real face that the AE misread due to compression or lighting artifacts.
-    elif (0.15 <= cnn_raw < 0.30
-            and fp < 0.65
-            and verdict == "FAKE"
-            and is_low_quality):       
-        verdict = "REAL"
-        fp      = fp * 0.4
-        conf    = (1 - fp) * 100
-        ov_tier = 0
+        # Tier 1 — Borderline CNN + very clean AE
+        # CNN 50-65% on a blurry image is unreliable.
+        # AE < 0.015 is unusually clean — face reconstructs like a real one.
+        elif (50.0 <= cnn_pct <= 65.0
+                and ae_err < 0.015
+                and sharpness < 0.70):
+            verdict = "REAL"
+            fp      = fp * 0.5
+            conf    = (1 - fp) * 100
+            ov_tier = 1
 
-    # Tier 1 — Borderline CNN + clean AE
-    # CNN in the borderline 50-65% zone on a blurry image is unreliable.
-    # If the AE confirms the face reconstructs cleanly (ae_err < 0.015), the face is most likely authentic — override to REAL.
-    elif (50.0 <= cnn_pct <= 65.0
-            and ae_err < 0.015
-            and verdict == "FAKE"
-            and sharpness < 0.70):
-        verdict = "REAL"
-        fp      = fp * 0.5
-        conf    = (1 - fp) * 100
-        ov_tier = 1
+        # Tier 2 — High CNN + anomalously clean AE
+        # CNN 65-95% suggests manipulation, but AE < 0.008 is suspiciously
+        # clean — genuine deepfakes almost never have AE this low.
+        # Reduce confidence rather than flip the verdict.
+        elif (65.0 < cnn_pct <= 95.0
+                and ae_err < 0.008):
+            fp      = fp * 0.65
+            verdict = "FAKE" if fp >= 0.5 else "REAL"
+            conf    = (fp * 100) if verdict == "FAKE" else ((1 - fp) * 100)
+            ov_tier = 2
 
-    #  Tier 2 — High CNN + very clean AE
-    # CNN 65-95% suggests manipulation, but AE below 0.008 is unusually clean.
-    # This conflict reduces confidence rather than flipping the verdict.
-    # Most genuine deepfakes have AE > 0.025, so < 0.008 is suspicious.
-    elif (65.0 < cnn_pct <= 95.0
-            and ae_err < 0.008
-            and verdict == "FAKE"):
-        fp      = fp * 0.65
-        conf    = fp * 100
-        verdict = "FAKE" if fp >= 0.5 else "REAL"
-        ov_tier = 2
-
-    #  UNCERTAIN gate
-    # When the meta-learner's confidence is genuinely ambiguous (50-65%) and both CNN and AE are in the borderline zone, show UNCERTAINrather than forcing a possibly wrong FAKE/REAL verdict.
-    # Only fires when no other tier has already overridden the verdict.
+    # UNCERTAIN gate
+    # Meta-learner is genuinely ambiguous and no tier has overridden.
+    # Only fires on sharp images (sharpness > 0.70) — blurry images are
+    # expected to be uncertain and should not trigger this gate.
     real_prob = 1 - fp
     if (verdict == "REAL"
             and real_prob < 0.70
             and sharpness > 0.70
-            and ov_tier is None):     
+            and ov_tier is None):
         verdict = "UNCERTAIN"
         ov_tier = "U"
 
@@ -1223,16 +1266,16 @@ def ai_summary(r):
 
     # Determine the story for Ollama prompt
     cnn_direction = "above" if cnn > 50 else "below"
-    ae_direction  = "above" if ae > 0.025 else "below"
+    ae_direction  = "above" if ae > 0.028 else "below"
 
-    if is_fake and cnn > 50 and ae > 0.025:
+    if is_fake and cnn > 50 and ae > 0.028:
         branch_story = (f"Both the CNN ({cnn}%) and the Autoencoder "
                         f"({ae}) agree this is manipulated.")
     elif is_fake and cnn <= 50:
         branch_story = (f"The CNN ({cnn}%) did not flag this alone, "
                         f"but the Autoencoder ({ae}) detected "
                         f"anomalies the CNN missed.")
-    elif not is_fake and cnn <= 50 and ae <= 0.025:
+    elif not is_fake and cnn <= 50 and ae <= 0.028:
         branch_story = (f"Both the CNN ({cnn}%) and the Autoencoder "
                         f"({ae}) agree this is authentic.")
     else:
@@ -1308,44 +1351,23 @@ Rules:
             f"evade detection. Independent expert forensic analysis is recommended."
         )
 
-    # ── Gate or tier override ────────────────────────────────────────
-    # ae_override: CNN was below 20% but AE was elevated (>= 0.035)
-    # Gate did NOT fire — AE signal was trusted over CNN
-    if is_fake and ov == "ae_override":
-        return "LOCAL", (
-            f"The CNN spotter scored {cnn}%, which is below the 50% threshold — "
-            f"meaning the CNN alone would have classified this as authentic. "
-            f"However the CNN confidence gate did not fire because the "
-            f"Autoencoder recorded a reconstruction error of {ae:.4f}, "
-            f"which is significantly above the 0.025 authentic face baseline. "
-            f"This pattern is consistent with AI-generated or animated synthetic "
-            f"images where the visual style fools the CNN but the internal CNN "
-            f"feature patterns still deviate from genuine facial structure. "
-            f"The meta-learner sided with the AE signal and classified this "
-            f"image as a likely deepfake at {conf}% confidence. "
-            f"The Grad-CAM heatmap concentrated activity on "
-            f"{top[0][0].lower()} ({ts}%) — expert review is advised."
-        )
-
-    # Gate fired — verdict was changed to REAL
+    # Gate or tier override fired — verdict was changed to REAL
     if not is_fake and ov in (0, "gate"):
+        # Explain what actually happened — CNN was confident enough to override
         ae_note = (
-            f"Although the Autoencoder recorded a reconstruction error of {ae:.4f} "
-            f"— slightly above the 0.025 baseline — this is consistent with "
-            f"image compression or screen capture artifacts rather than genuine "
-            f"deepfake manipulation. "
-            if ae > 0.025 else
-            f"The Autoencoder error of {ae:.4f} is within the 0.025 baseline, "
-            f"confirming clean facial feature patterns. "
+            f"Although the Autoencoder recorded a reconstruction error of {ae} "
+            f"— slightly above the 0.025 baseline — "
+            if ae > 0.028 else
+            f"The Autoencoder error of {ae} is within the 0.025 baseline. "
         )
         return "LOCAL", (
             f"The CNN spotter scored {cnn}%, which is below the 50% manipulation "
-            f"threshold — the CNN is confident this face is authentic. "
+            f"threshold — meaning the CNN is confident this face is authentic. "
             f"{ae_note}"
-            f"The CNN confidence gate confirmed this verdict: with the CNN "
-            f"strongly indicating an authentic face and the AE error within "
-            f"acceptable limits, DEEPTRUST classifies this image as authentic "
-            f"at {conf}% confidence. "
+            f"The CNN confidence gate overrode the initial assessment: "
+            f"when both the CNN score and the overall confidence pattern point to "
+            f"an authentic face, DEEPTRUST trusts the CNN signal. "
+            f"DEEPTRUST classifies this image as authentic at {conf}% confidence. "
             f"The Grad-CAM heatmap shows highest activity on the "
             f"{top[0][0].lower()} at {ts}%, which is within normal range "
             f"for authentic faces."
@@ -1361,15 +1383,15 @@ Rules:
         )
         # AE sentence — above or below baseline
         ae_ctx = ("significantly above" if ae > 0.032
-                  else "moderately above" if ae > 0.025
-                  else "near")
+                  else "moderately above" if ae > 0.028
+                  else "below")
         ae_sent = (
             f"The Autoencoder reconstruction error was {ae}, "
             f"which is {ae_ctx} the authentic face baseline of 0.025 — "
-            f"{'suggesting the face deviates from genuine facial CNN feature patterns' if ae > 0.025 else 'however the combined CNN and AE signals still indicate manipulation'}."
+            f"{'suggesting the face deviates from genuine facial CNN feature patterns' if ae > 0.028 else 'however the combined CNN and AE signals still indicate manipulation'}."
         )
         # Agreement between branches
-        if cnn > 50 and ae > 0.025:
+        if cnn > 50 and ae > 0.028:
             agree = (f"Both branches agree — the CNN flagged manipulation and "
                      f"the AE confirmed anomalous reconstruction, giving "
                      f"the system {conf}% confidence in the FAKE verdict.")
@@ -1402,7 +1424,7 @@ Rules:
             f"manipulation threshold — no significant manipulation patterns detected."
         )
         # AE sentence depends on whether AE is clean or slightly elevated
-        if ae > 0.025:
+        if ae > 0.028:
             ae_sent = (
                 f"The Autoencoder error of {ae} is slightly above the 0.025 "
                 f"baseline, but combined with the CNN score both branches "
@@ -1623,64 +1645,181 @@ def clear_session():
     # Step 3: Reset Streamlit session state 
     # Clear all in-memory variables so the app returns to its initial state.
     # The user will need to go through consent and upload again.
-    st.session_state.results       = None   # clear scan results
-    st.session_state.upload_id     = None   # clear upload tracking ID
-    st.session_state.session_id    = None   # clear session identity
-    st.session_state.consent_given = False  # require consent again on next scan
+    # Clear AI summary cache
+    for k in list(st.session_state.keys()):
+        if k.startswith("ai_txt_"):
+            del st.session_state[k]
+    st.session_state.results       = None
+    st.session_state.upload_id     = None
+    st.session_state.session_id    = None
+    st.session_state.consent_given = False
+    st.session_state.session_start = None
+    st.session_state.scan_history  = None
+    st.session_state.confirm_new   = False
 
 
 
 # SECTION 18: UI HELPER FUNCTIONS
 # These small functions generate reusable HTML/CSS components used  throughout the app's output page. Keeping them as functions avoids repeating the same HTML string everywhere and makes the code easier to read.
-def navbar():
-    sess = st.session_state.session_id
-    # Choose pill style — green if session active, grey if not
-    pcls = "pill-on" if sess else "pill"
-    # Truncate long session ID to first 16 characters for display
-    pt   = sess[:16] + "..." if sess else "No session"
+def start_new_scan():
+    """
+    Resets for a new scan WITHOUT destroying the session.
+    The user keeps their Session ID and scan history.
+    Only clears the current result and upload ID.
+    Session only fully clears when user closes the browser (in-memory SQLite).
+    """
+    # Clear AI summary cache for old result
+    for k in list(st.session_state.keys()):
+        if k.startswith("ai_txt_"):
+            del st.session_state[k]
+    # Clear heatmap file from disk
+    r = st.session_state.get("results")
+    if r:
+        hp = r.get("hmap", "")
+        if hp and os.path.exists(hp):
+            os.remove(hp)
+    # Reset result and upload but KEEP session + history
+    st.session_state.results   = None
+    st.session_state.upload_id = None
+    st.session_state.confirm_new = False
 
-    st.markdown(f"""
-    <div class="topbar">
-        <div class="logo">
-            <!-- Logo icon: SVG magnifying glass with crosshair -->
-            <div class="logo-icon">
-                <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                    <!-- Circle = lens of magnifying glass -->
-                    <circle cx="7.5" cy="7.5" r="5"
-                        stroke="#fff" stroke-width="1.5"/>
-                    <!-- Diagonal line = handle of magnifying glass -->
+
+def navbar():
+    sess    = st.session_state.session_id
+    scans   = db_count()
+    start_t = st.session_state.get("session_start", "")
+    page    = st.session_state.get("page", "welcome")
+
+    # CSS 
+    # Responsive navbar CSS
+    st.markdown(f"""<style>
+    .dt-session-wrap {{
+        background: {T['nav']}; border-bottom: 1px solid {T['border']};
+        margin: -4px -1rem 0.6rem -1rem; padding: 3px 1.5rem 7px;
+    }}
+    /* Navbar row — first horizontal block */
+    div[data-testid="stVerticalBlock"] > div:first-child
+    div[data-testid="stHorizontalBlock"] {{
+        background: {T['nav']};
+        border-bottom: 1px solid {T['border']};
+        margin: -1rem -1rem 0 -1rem !important;
+        padding: 8px 1.5rem !important;
+        align-items: center;
+        gap: 0 !important;
+    }}
+    /* Nav button style */
+    div[data-testid="stVerticalBlock"] > div:first-child
+    div[data-testid="stHorizontalBlock"] .stButton > button {{
+        background: transparent !important;
+        border: 1px solid {T['border']} !important;
+        color: {T['txt2']} !important;
+        font-size: 12px !important; font-weight: 500 !important;
+        padding: 5px 10px !important; border-radius: 6px !important;
+        width: 100%;
+    }}
+    div[data-testid="stVerticalBlock"] > div:first-child
+    div[data-testid="stHorizontalBlock"] .stButton > button:hover {{
+        background: {T['bg_sec']} !important; color: {T['txt']} !important;
+    }}
+    /* Mobile: collapse nav buttons, show select dropdown */
+    /* Mobile: Streamlit columns auto-wrap on small screens */
+    @media (max-width: 640px) {{
+        div[data-testid="stVerticalBlock"] > div:first-child
+        div[data-testid="stHorizontalBlock"] .stButton > button {{
+            font-size: 10px !important;
+            padding: 4px 6px !important;
+        }}
+    }}
+    /* Help/log page text always readable in both modes */
+    .dt-page-body {{ color: var(--color-text-primary) !important; }}
+    /* Dark mode metric card text */
+    .metric .m-val, .metric .m-lbl, .metric .m-src {{
+        color: var(--color-text-primary) !important;
+    }}
+    </style>""", unsafe_allow_html=True)
+
+    # Logo row (always visible) 
+    col_logo, col_home, col_log, col_help, col_theme = st.columns([4, 1, 1.1, 1, 1.3])
+
+    with col_logo:
+        st.markdown(f"""
+        <div style="display:flex;align-items:center;gap:10px;padding:2px 0;">
+            <div style="width:32px;height:32px;background:{T['accent']};
+                 border-radius:6px;display:flex;align-items:center;
+                 justify-content:center;flex-shrink:0;">
+                <svg width="16" height="16" viewBox="0 0 18 18" fill="none">
+                    <circle cx="7.5" cy="7.5" r="5" stroke="#fff" stroke-width="1.5"/>
                     <line x1="11.5" y1="11.5" x2="16" y2="16"
-                        stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>
-                    <!-- Horizontal crosshair line inside lens -->
+                          stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>
                     <line x1="5.5" y1="7.5" x2="9.5" y2="7.5"
-                        stroke="#AACCEE" stroke-width="1.2" stroke-linecap="round"/>
-                    <!-- Vertical crosshair line inside lens -->
+                          stroke="#AACCEE" stroke-width="1.2" stroke-linecap="round"/>
                     <line x1="7.5" y1="5.5" x2="7.5" y2="9.5"
-                        stroke="#AACCEE" stroke-width="1.2" stroke-linecap="round"/>
+                          stroke="#AACCEE" stroke-width="1.2" stroke-linecap="round"/>
                 </svg>
             </div>
             <div>
-                <div class="logo-name">DEEPTRUST</div>
-                <div class="logo-sub">Image Deepfake Detection Using Ensemble
-                    Convolutional Neural Networks and Autoencoder-Based Anomaly Analysis
-                </div>
+                <div style="font-size:14px;font-weight:600;
+                     color:{T['txt']};line-height:1.2;">DEEPTRUST</div>
+                <div style="font-size:10px;color:{T['muted']};">
+                    An AI-powered image deepfake detection tool &nbsp;|&nbsp; TUK 2026</div>
             </div>
-        </div>
-        <div class="nav-right">
-            <!-- Scan count pill — shows total scans this session -->
-            <span class="pill">Scans: {db_count()}</span>
-            <!-- Session ID pill — green when active -->
-            <span class="{pcls}">{pt}</span>
-        </div>
-    </div>""", unsafe_allow_html=True)
+        </div>""", unsafe_allow_html=True)
 
-    # Dark mode toggle button — placed in the rightmost column
-    # Clicking flips dark_mode boolean and reruns the app to apply new theme
-    _, _, c3 = st.columns([8, 1, 1])
-    with c3:
+    with col_home:
+        if st.button("Home", key="nav_home"):
+            st.session_state.page = "welcome"
+            st.rerun()
+
+    with col_log:
+        if st.button("My scans", key="nav_log"):
+            st.session_state.page = "log"
+            st.rerun()
+
+    with col_help:
+        if st.button("Help", key="nav_help"):
+            st.session_state.page = "help"
+            st.rerun()
+
+    with col_theme:
         if st.button(T["toggle_lbl"], key="tm"):
             st.session_state.dark_mode = not st.session_state.dark_mode
-            st.rerun()   # re-render entire app with new theme
+            st.rerun()
+
+
+
+    # Session identity strip — shown only when session is active
+    if sess:
+        scan_txt = f"{scans} scan{'s' if scans != 1 else ''}"
+        st.markdown(f"""
+        <div class="dt-session-wrap">
+            <div style="display:flex;align-items:center;gap:8px;">
+                <!-- User icon -->
+                <div style="width:22px;height:22px;background:{T['bar_ok']};
+                     border-radius:50%;display:flex;align-items:center;
+                     justify-content:center;flex-shrink:0;">
+                    <svg width="11" height="11" viewBox="0 0 14 14" fill="none">
+                        <circle cx="7" cy="5" r="3" stroke="#fff" stroke-width="1.4"/>
+                        <path d="M1 13c0-3 2.7-5 6-5s6 2 6 5" stroke="#fff"
+                              stroke-width="1.4" stroke-linecap="round" fill="none"/>
+                    </svg>
+                </div>
+                <span style="font-size:10.5px;font-family:'JetBrains Mono',monospace;
+                      font-weight:600;color:{T['bar_ok']};">{sess}</span>
+                <span style="font-size:10px;color:{T['muted']};">
+                    &nbsp;|&nbsp; Active session
+                    &nbsp;|&nbsp; {scan_txt}
+                    &nbsp;|&nbsp; Since {start_t}
+                </span>
+            </div>
+        </div>""", unsafe_allow_html=True)
+    else:
+        st.markdown(f"""
+        <div class="dt-session-wrap">
+            <div style="font-size:10px;color:{T['muted']};">
+                No active session &nbsp;|&nbsp;
+                Accept the consent on the scan page to begin.
+            </div>
+        </div>""", unsafe_allow_html=True)
 
 
 def steps(active):
@@ -1725,6 +1864,410 @@ def mklog(k, v, s=""):
         f'  <span class="lv" style="{s}">{v}</span>'
         f'</div>'
     )
+
+
+# SECTION 18b: WELCOME PAGE — page_welcome()
+# The first page users see. Explains what DEEPTRUST is, how to use it, shows key stats, and provides a single clear Start button.
+def page_welcome():
+    """
+    Landing page
+
+    """
+    navbar()
+
+    #Heros section : title and  one-line purpose
+    st.markdown(f"""
+    <div style="padding:24px 0 16px;">
+        <div style="font-size:13px;font-weight:600;color:{T['accent']};
+             letter-spacing:1.2px;text-transform:uppercase;margin-bottom:6px;">
+            Image Deepfake Detection Using Ensemble Convolutional Neural Networks and Autoencoder-Based Anomaly Analysis</div>
+        <div style="font-size:30px;font-weight:700;color:{T['txt']};
+             letter-spacing:-0.3px;margin-bottom:10px;">
+            Can you trust what you see online?</div>
+        <div style="font-size:14px;color:{T['txt2']};max-width:680px;line-height:1.75;">
+            Have you ever encountered a photo on social media that looks incredibly
+            realistic, yet something about it just feels off? Maybe it is a profile 
+            picture of a person who seems a little too perfect, a shocking political image,
+            or a celebrity endorsement that looks entirely genuine. In today’s digital world,
+            your eyes can easily deceive you.
+            This is the reality of deepfakes — digitally manipulated or completely fabricated 
+            photographs of human faces created by sophisticated Artificial Intelligence (AI). 
+            These fakes have become so advanced that the human eye can no longer reliably spot them.
+            That is where DEEPTRUST comes in. Think of DEEPTRUST as a highly trained digital investigator,
+            designed to instantly uncover the truth behind any facial image.
+        </div>
+    </div>""", unsafe_allow_html=True)
+
+    # PRIMARY ACTION: Start scan button — above everything else 
+    # Primary action must be immediately visible on load
+    ba, bb, bc = st.columns([2, 3, 2])
+    with bb:
+        if st.button("Start a deepfake scan now",
+                     type="primary", use_container_width=True):
+            st.session_state.page = "input"
+            st.rerun()
+    st.markdown(f"""
+    <div style="text-align:center;font-size:11px;color:{T['muted']};margin-top:6px;
+         margin-bottom:20px;">
+        No login required. No data stored. Session deleted on close.
+    </div>""", unsafe_allow_html=True)
+
+    #  Two-column layout: How it works | What it detects 
+    left, right = st.columns(2, gap="medium")
+
+    with left:
+        st.markdown(f"""
+        <div class="card" style="height:100%;">
+            <div class="sec-label">How it works — 6 steps</div>
+            <div style="display:flex;flex-direction:column;gap:12px;margin-top:6px;">
+                <div style="display:flex;gap:12px;align-items:flex-start;">
+                    <div style="min-width:26px;height:26px;background:{T['accent']};
+                         border-radius:50%;display:flex;align-items:center;
+                         justify-content:center;font-size:11px;font-weight:700;
+                         color:#fff;flex-shrink:0;">1</div>
+                    <div>
+                        <div style="font-size:12px;font-weight:600;color:{T['txt']};
+                             margin-bottom:2px;">Click Start scan</div>
+                        <div style="font-size:11.5px;color:{T['txt2']};line-height:1.5;">
+                            Click the blue Start a deepfake scan now button on the home page.</div>
+                    </div>
+                </div>
+                <div style="display:flex;gap:12px;align-items:flex-start;">
+                    <div style="min-width:26px;height:26px;background:{T['accent']};
+                         border-radius:50%;display:flex;align-items:center;
+                         justify-content:center;font-size:11px;font-weight:700;
+                         color:#fff;flex-shrink:0;">2</div>
+                    <div>
+                        <div style="font-size:12px;font-weight:600;color:{T['txt']};
+                             margin-bottom:2px;">Accept consent</div>
+                        <div style="font-size:11.5px;color:{T['txt2']};line-height:1.5;">
+                            Read the privacy notice and tick the checkbox to proceed.</div>
+                    </div>
+                </div>
+                <div style="display:flex;gap:12px;align-items:flex-start;">
+                    <div style="min-width:26px;height:26px;background:{T['accent']};
+                         border-radius:50%;display:flex;align-items:center;
+                         justify-content:center;font-size:11px;font-weight:700;
+                         color:#fff;flex-shrink:0;">3</div>
+                    <div>
+                        <div style="font-size:12px;font-weight:600;color:{T['txt']};
+                             margin-bottom:2px;">Get your Session ID</div>
+                        <div style="font-size:11.5px;color:{T['txt2']};line-height:1.5;">
+                            Your anonymous ID (SESS-XXXX-XXXX-XXXX) appears in the green bar — you are now in the system.</div>
+                    </div>
+                </div>
+                <div style="display:flex;gap:12px;align-items:flex-start;">
+                    <div style="min-width:26px;height:26px;background:{T['accent']};
+                         border-radius:50%;display:flex;align-items:center;
+                         justify-content:center;font-size:11px;font-weight:700;
+                         color:#fff;flex-shrink:0;">4</div>
+                    <div>
+                        <div style="font-size:12px;font-weight:600;color:{T['txt']};
+                             margin-bottom:2px;">Upload a face image</div>
+                        <div style="font-size:11.5px;color:{T['txt2']};line-height:1.5;">
+                            Select any JPG, PNG, or WebP face image. File is validated and a face must be detected.</div>
+                    </div>
+                </div>
+                <div style="display:flex;gap:12px;align-items:flex-start;">
+                    <div style="min-width:26px;height:26px;background:{T['accent']};
+                         border-radius:50%;display:flex;align-items:center;
+                         justify-content:center;font-size:11px;font-weight:700;
+                         color:#fff;flex-shrink:0;">5</div>
+                    <div>
+                        <div style="font-size:12px;font-weight:600;color:{T['txt']};
+                             margin-bottom:2px;">Click Analyse</div>
+                        <div style="font-size:11.5px;color:{T['txt2']};line-height:1.5;">
+                            The 3-stage AI pipeline runs: CNN Spotter, Autoencoder Alarm, Meta-learner.</div>
+                    </div>
+                </div>
+                <div style="display:flex;gap:12px;align-items:flex-start;">
+                    <div style="min-width:26px;height:26px;background:{T['accent']};
+                         border-radius:50%;display:flex;align-items:center;
+                         justify-content:center;font-size:11px;font-weight:700;
+                         color:#fff;flex-shrink:0;">6</div>
+                    <div>
+                        <div style="font-size:12px;font-weight:600;color:{T['txt']};
+                             margin-bottom:2px;">Get your verdict</div>
+                        <div style="font-size:11.5px;color:{T['txt2']};line-height:1.5;">
+                            REAL, FAKE, or UNCERTAIN — with Grad-CAM heatmap, AI summary, and PDF report.</div>
+                    </div>
+                </div>
+            </div>
+        </div>""", unsafe_allow_html=True)
+
+    with right:
+        st.markdown(f"""
+        <div class="card" style="height:100%;">
+            <div class="sec-label">What DEEPTRUST detects</div>
+            <div style="font-size:12px;color:{T['txt2']};line-height:1.75;margin-top:6px;">
+                DEEPTRUST was trained on the FaceForensics++ and DFDC academic benchmarks
+                covering six types of facial manipulation:<br><br>
+                <b style="color:{T['txt']}">1. Face swap (Deepfakes)</b> — one
+                person's face placed onto another's body using encoder-decoder AI synthesis.
+                Trained on FaceForensics++ Deepfakes category. Detection accuracy: 87.5%.<br><br>
+                <b style="color:{T['txt']}">2. Face2Face re-enactment</b> — facial expressions
+                and mouth movements transferred from one person to another in real time.
+                Detection accuracy: 77.0%.<br><br>
+                <b style="color:{T['txt']}">3. FaceShifter identity swap</b> — high-fidelity
+                identity transfer that preserves target attributes such as glasses and hair.
+                Detection accuracy: 61.0%.<br><br>
+                <b style="color:{T['txt']}">4. FaceSwap replacement</b> — geometric face
+                region replacement using landmark alignment. Among the harder manipulation
+                types to detect. Detection accuracy: 50.0%.<br><br>
+                <b style="color:{T['txt']}">5. NeuralTextures rendering</b> — neural
+                texture-based rendering that modifies facial appearance via learned texture
+                maps. Detection accuracy: 52.0%.<br><br>
+                <b style="color:{T['txt']}">6. GAN-generated synthetic faces</b> — completely
+                fabricated faces that belong to no real person, generated by StyleGAN and
+                similar architectures. Sites like thispersondoesnotexist.com use this method.
+                Caught by the Autoencoder anomaly branch even when the CNN is fooled.<br><br>
+                <b style="color:{T['bar_fake']}">Limitation:</b> Designed for still images
+                of human faces only. Video, audio, and non-face images are not supported.
+                Consumer phone selfies may produce lower confidence scores due to compression
+                differences from the FaceForensics++ and DFDC training data distribution.
+            </div>
+        </div>""", unsafe_allow_html=True)
+
+    st.markdown("<div style='margin-top:14px'></div>", unsafe_allow_html=True)
+
+    # Privacy + system performance in one row 
+    pa, pb = st.columns(2, gap="medium")
+
+    with pa:
+        st.markdown(f"""
+        <div class="card">
+            <div class="sec-label">Privacy by design — Kenya Data Protection Act 2019</div>
+            <div style="font-size:12px;color:{T['txt2']};line-height:1.75;margin-top:4px;">
+                DEEPTRUST was built with a Privacy-by-Design architecture meaning your
+                data is protected at every stage, not as an afterthought.<br><br>
+                <b style="color:{T['txt']}">No account required.</b> You do not need to
+                register, log in, or provide any personal information to use the system.<br><br>
+                <b style="color:{T['txt']}">Anonymous session identity.</b> The moment you
+                accept the consent, the system generates a temporary Session ID in the format
+                SESS-XXXX-XXXX-XXXX. This ID links your upload and scan together during your
+                visit only. It is visible in the navigation bar so you always know the system
+                acknowledges your presence.<br><br>
+                <b style="color:{T['txt']}">No permanent storage.</b> All scan data lives
+                in RAM only. When you close the browser or end the session, every record is
+                permanently deleted. Nothing is written to disk. Nothing is sent to a server.
+            </div>
+        </div>""", unsafe_allow_html=True)
+
+    with pb:
+        st.markdown(f"""
+        <div class="card">
+            <div class="sec-label">System performance — benchmark evaluation</div>
+            <div style="margin-top:8px;">
+                <div style="display:flex;justify-content:space-between;
+                     padding:10px 0;border-bottom:1px solid {T['border']};">
+                    <span style="font-size:12px;color:{T['txt2']};">Combined accuracy</span>
+                    <span style="font-size:14px;font-weight:700;color:{T['accent']};">74.37%</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;
+                     padding:10px 0;border-bottom:1px solid {T['border']};">
+                    <span style="font-size:12px;color:{T['txt2']};">Area under curve (AUC)</span>
+                    <span style="font-size:14px;font-weight:700;color:{T['accent']};">0.8698</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;
+                     padding:10px 0;border-bottom:1px solid {T['border']};">
+                    <span style="font-size:12px;color:{T['txt2']};">Images evaluated</span>
+                    <span style="font-size:14px;font-weight:700;color:{T['accent']};">1,900</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;
+                     padding:10px 0;border-bottom:1px solid {T['border']};">
+                    <span style="font-size:12px;color:{T['txt2']};">CNN standalone accuracy</span>
+                    <span style="font-size:14px;font-weight:700;color:{T['accent']};">78.63%</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;
+                     padding:10px 0;border-bottom:1px solid {T['border']};">
+                    <span style="font-size:12px;color:{T['txt2']};">False positive rate</span>
+                    <span style="font-size:14px;font-weight:700;color:{T['bar_ok']};">13.0%</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;
+                     padding:10px 0;">
+                    <span style="font-size:12px;color:{T['txt2']};">Evaluation datasets</span>
+                    <span style="font-size:12px;color:{T['txt2']};">FF++ + DFDC</span>
+                </div>
+            </div>
+        </div>""", unsafe_allow_html=True)
+
+    # Want to try it? demo tip at the very bottom 
+    st.markdown(f"""
+    <div style="background:{T['accent_light']};border:1px solid {T['border']};
+         border-left:4px solid {T['accent']};border-radius:8px;
+         padding:14px 18px;margin-top:14px;">
+        <div style="font-size:13px;font-weight:600;color:{T['accent']};
+             margin-bottom:6px;">Want to test it right now?</div>
+        <div style="font-size:12px;color:{T['txt2']};line-height:1.7;">
+            For the most reliable demo results, try these two sources side by side:<br>
+            <b style="color:{T['txt']}">For a FAKE result:</b> open
+            <a href="https://thispersondoesnotexist.com" target="_blank"
+               style="color:{T['accent']};">thispersondoesnotexist.com</a>,
+            right-click the face and save it, then upload it here.<br>
+            These give clean, consistent results because they match the training
+            data distribution — direct downloads without compression artifacts.
+        </div>
+    </div>""", unsafe_allow_html=True)
+
+    st.markdown(f"""
+    <div style="text-align:center;font-size:10px;color:{T['muted']};
+         margin-top:14px;padding-bottom:10px;">
+        DEEPTRUST v1.9— Final Year Project, Technical University of Kenya, 2026.
+        For forensic assistance only. Not legal evidence without expert review.
+    </div>""", unsafe_allow_html=True)
+
+
+
+# HELP PAGE — page_help()
+# Shown when user clicks Help in the navbar.
+def page_log():
+    """
+    My scans page — pure Streamlit widgets for full dark/light mode support.
+    Shows session ID, scan history, and lets user navigate.
+    """
+    navbar()
+    st.markdown("### My Scans")
+    sess  = st.session_state.session_id
+    start = st.session_state.get("session_start", "—")
+    history = st.session_state.get("scan_history") or []
+    scans = len(history)
+
+    if not sess:
+        st.warning("No active session. Accept the consent on the scan page to begin.")
+        if st.button("Go to scan page"):
+            st.session_state.page = "input"
+            st.rerun()
+        return
+
+    # Session summary using st.metric (fully dark-mode aware)
+    ca, cb, cc, cd = st.columns(4)
+    with ca: st.metric("Session ID", sess[:18]+"...")
+    with cb: st.metric("Session started", start)
+    with cc: st.metric("Total scans", scans)
+    with cd: st.metric("Status", "Active")
+
+    st.divider()
+
+    if not history:
+        st.info("No scans recorded yet this session. Go to the scan page and upload a face image to get started.")
+    else:
+        st.caption(
+            f"{scans} scan{'s' if scans != 1 else ''} recorded · "
+            "All data deleted automatically when browser is closed.")
+
+        for i, h in enumerate(history, 1):
+            verdict_label = h['verdict']
+            with st.expander(
+                f"Scan {i} of {scans}  —  {h['time']}  —  {h['file']}  —  {verdict_label} {h['conf']:.0f}%",
+                expanded=(i == len(history))
+            ):
+                col1, col2, col3, col4 = st.columns(4)
+                with col1: st.metric("Verdict", h['verdict'])
+                with col2: st.metric("Confidence", f"{h['conf']:.1f}%")
+                with col3: st.metric("CNN score", f"{h['cnn']:.1f}%")
+                with col4: st.metric("AE error", f"{h['ae']:.4f}")
+
+                st.markdown("---")
+                rid  = h['rid']
+                fn   = h['file']
+                tm   = h['time']
+                st.caption(
+                    f"Result ID: {rid}  |  File: {fn}  |  Time: {tm}  |  Session: {sess}"
+                )
+
+                # What this verdict means
+                if h['verdict'] == "FAKE":
+                    st.error("FAKE — The AI detected manipulation signatures in this image.")
+                elif h['verdict'] == "REAL":
+                    st.success("REAL — No significant manipulation detected. Image appears authentic.")
+                else:
+                    st.warning("UNCERTAIN — Signals were ambiguous. Expert review recommended.")
+
+    st.divider()
+    ba, bb = st.columns(2)
+    with ba:
+        if st.button("Back to home", use_container_width=True):
+            st.session_state.page = "welcome"
+            st.rerun()
+    with bb:
+        if st.button("Scan another image", type="primary", use_container_width=True):
+            start_new_scan()
+            st.session_state.page = "input"
+            st.rerun()
+
+
+def page_help():
+    """Help page — pure Streamlit widgets, no HTML rendering issues."""
+    navbar()
+
+    st.markdown("### DEEPTRUST — Help Guide")
+    st.caption("Everything you need to know about using this system.")
+    st.divider()
+
+    left, right = st.columns([3, 2], gap="medium")
+
+    with left:
+        st.markdown("**How to use DEEPTRUST — step by step**")
+        st.markdown("""
+**Step 1 — Click Start a deepfake scan now**
+
+On the home page, click the blue Start button. This takes you to the scan page.
+
+**Step 2 — Accept the privacy consent**
+
+Read the privacy notice and tick the checkbox. The moment you tick it, the system generates your anonymous Session ID (SESS-XXXX-XXXX-XXXX) visible in the green bar below the navigation bar. This is how the system acknowledges your presence — no login or password needed.
+
+**Step 3 — Upload a face image**
+
+Drag and drop or browse to select a JPG, PNG, or WebP image. Maximum 10 MB. The system automatically checks the file is genuine and that a human face is visible before any AI analysis runs.
+
+**Step 4 — Click Analyse**
+
+Click the Analyse button on the right side of the image preview. A spinner shows while the 3-stage AI pipeline runs — typically 3 to 8 seconds. Results appear automatically when complete.
+
+**Step 5 — Read your verdict**
+
+- **REAL** — No manipulation detected. Image appears authentic.
+- **FAKE** — AI detected manipulation signatures. Likely a deepfake.
+- **UNCERTAIN** — Signals are ambiguous. Expert review recommended.
+
+**Step 6 — Download the PDF report**
+
+Click Download PDF forensic report to save a full report with the Grad-CAM heatmap, AI scores, and forensic summary.
+
+**Why was my selfie flagged as fake?**
+
+WhatsApp compression and phone camera processing create pixel-level differences from the training data, which can inflate the Autoencoder error. For best results use images downloaded directly from websites.
+
+**What is the Session ID?**
+
+A temporary anonymous identifier linking your upload and scan together during your visit. Visible in the green bar below the navbar. All data is permanently deleted when the app is closed — Kenya Data Protection Act 2019.
+        """)
+
+    with right:
+        st.markdown("**Your session activity**")
+        history = st.session_state.get("scan_history") or []
+        if history:
+            for i, h in enumerate(history, 1):
+                verdict_icon = "FAKE" if h['verdict']=="FAKE" else ("REAL" if h['verdict']=="REAL" else "UNCERTAIN")
+                st.markdown(f"`#{i}` **{h['time']}** — {h['file']} — **{verdict_icon}** {h['conf']:.0f}%")
+                st.divider()
+        else:
+            st.info("No scans yet this session. Upload a face image to get started.")
+
+        st.markdown("**Best images to test with**")
+        st.markdown("""
+**For a FAKE result:**
+Open [thispersondoesnotexist.com](https://thispersondoesnotexist.com), right-click the face image and save it, then upload it here. These are GAN-generated faces.
+
+        """)
+
+    st.divider()
+    _, bc, _ = st.columns([3, 1, 3])
+    with bc:
+        if st.button("Back to home", use_container_width=True):
+            st.session_state.page = "welcome"
+            st.rerun()
 
 
 # SECTION 19: INPUT PAGE — page_input()
@@ -1780,9 +2323,10 @@ def page_input():
     # User just ticked the checkbox — create session and register in DB
     if consent and not st.session_state.consent_given:
         st.session_state.consent_given = True
-        st.session_state.session_id    = mk_session()   # e.g. SESS-A3F2-7B1C-9E44
-        db_session(st.session_state.session_id)          # log to TBL_SESSIONS
-        st.rerun()   # rerun to show upload section at Step 2
+        st.session_state.session_id    = mk_session()
+        st.session_state.session_start = datetime.now().strftime("%H:%M")
+        db_session(st.session_state.session_id)
+        st.rerun()
 
     # User unticked after previously consenting — purge all session data
     if not consent and st.session_state.consent_given:
@@ -1806,7 +2350,19 @@ def page_input():
         uploaded = st.file_uploader(
             "Select a face image to analyse",
             type=["jpg","jpeg","png","webp"],
-            help="Max 10 MB — .jpg .png .webp")
+            help="Max 10 MB — .jpg .png or .webp. For best results use images downloaded from websites rather than phone selfies.")
+
+        # Tip for new users
+        st.markdown(f"""
+        <div style="font-size:11px;color:{T['muted']};margin-top:4px;line-height:1.6;">
+            <b>Tip for demo:</b> Download a face from
+            <a href="https://thispersondoesnotexist.com" target="_blank"
+               style="color:{T['accent']};">thispersondoesnotexist.com</a>
+            (a GAN-generated fake) or a portrait from
+            <a href="https://en.wikipedia.org" target="_blank"
+               style="color:{T['accent']};">Pictures from Internet</a> (a real face)
+            to see the system in action.
+        </div>""", unsafe_allow_html=True)
 
         if uploaded:
             raw = uploaded.getvalue()   # read raw bytes from uploaded file
@@ -1890,59 +2446,92 @@ def page_input():
 
                     st.markdown("<br>", unsafe_allow_html=True)
 
-                    # Image preview
-                    # Show the uploaded image so the user can confirm it is the right file before clicking scan
-                    pc, _ = st.columns([1, 2])
-                    with pc:
-                        st.image(Image.open(io.BytesIO(raw)),
-                                 caption="Preview",
-                                 use_container_width=True)
+                    #  Photo LEFT, Scan button RIGHT — smart layout
+                    # Small thumbnail on left for reference.
+                    # Compact prominent scan button on right.
+                    # No full-width button that obscures the image.
+                    prev_col, btn_col = st.columns([1, 2], gap="medium")
 
-                    st.markdown("<br>", unsafe_allow_html=True)
+                    with prev_col:
+                        img_preview = Image.open(io.BytesIO(raw))
+                        img_preview.thumbnail((110, 110))
+                        st.image(img_preview, caption="Preview", width=110)
 
-                    # Scan button
-                    # The primary action button — triggers the full AI pipeline.
-                    if st.button("Deeptrust, is this a deepfake?",
-                                 type="primary"):
-                        with st.spinner("Analysing image..."):
-                            t0  = time.time()
+                    with btn_col:
+                        st.markdown(f"""
+                        <div style="padding:8px 0 12px;">
+                            <div style="font-size:13px;font-weight:600;
+                                 color:{T['txt']};margin-bottom:4px;">
+                                Ready to scan</div>
+                            <div style="font-size:12px;color:{T['txt2']};
+                                 line-height:1.6;margin-bottom:14px;">
+                                File validated. Human face detected.<br>
+                                Click Analyse to run the 3-stage AI pipeline.
+                            </div>
+                        </div>""", unsafe_allow_html=True)
+                        scan_pressed = st.button(
+                            "Analyse — is this a deepfake?",
+                            type="primary",
+                            use_container_width=True)
+                        # Spinner placeholder — fills in below button on click
+                        spinner_slot = st.empty()
 
-                            # Run the three-stage detection pipeline
+                    st.markdown("<div style='margin-bottom:8px'></div>",
+                                unsafe_allow_html=True)
+
+                    if scan_pressed:
+                        t0 = time.time()
+                        with spinner_slot:
+                            st.spinner("Running CNN, Autoencoder, Meta-learner...")
+                        with st.spinner("Analysing image — CNN, Autoencoder, Meta-learner..."):
                             res = run_inference(
                                 Image.open(io.BytesIO(raw)), "Standard")
 
-                            # Add session metadata to the result dict
-                            # These fields are used by the PDF and forensic log
-                            elapsed = round(time.time() - t0, 2)
-                            res.update({
-                                "process_time": elapsed,
-                                "file_name":    uploaded.name,
-                                "file_size":    fsize,
-                                "file_hash":    fh,
-                                "scan_mode":    "Standard",
-                                "upload_id":    uid,
-                                "session_id":   st.session_state.session_id,
-                                "timestamp":    datetime.now().strftime(
-                                    "%Y-%m-%d %H:%M:%S"),
-                            })
+                        # Add session metadata to the result dict
+                        elapsed = round(time.time() - t0, 2)
+                        res.update({
+                            "process_time": elapsed,
+                            "file_name":    uploaded.name,
+                            "file_size":    fsize,
+                            "file_hash":    fh,
+                            "scan_mode":    "Standard",
+                            "upload_id":    uid,
+                            "session_id":   st.session_state.session_id,
+                            "timestamp":    datetime.now().strftime(
+                                "%Y-%m-%d %H:%M:%S"),
+                        })
 
-                            # expected keys before saving to database
-                            db_result({
-                                "rid":     res["result_id"],
-                                "uid":     res["upload_id"],
-                                "cnn":     res["cnn_score"],
-                                "ae":      res["ae_error"],
-                                "verdict": res["verdict"],
-                                "conf":    res["confidence"],
-                                "hmap":    res["hmap"],
-                                "mode":    res["scan_mode"],
-                                "t":       res["process_time"],
-                            })
+                        # Save to database
+                        db_result({
+                            "rid":     res["result_id"],
+                            "uid":     res["upload_id"],
+                            "cnn":     res["cnn_score"],
+                            "ae":      res["ae_error"],
+                            "verdict": res["verdict"],
+                            "conf":    res["confidence"],
+                            "hmap":    res["hmap"],
+                            "mode":    res["scan_mode"],
+                            "t":       res["process_time"],
+                        })
 
-                            # Store result in session state and go to output page
-                            st.session_state.results = res
-                            st.session_state.page    = "output"
-                            st.rerun()
+                        # Store result in session state
+                        st.session_state.results = res
+
+                        # Add to scan history for activity log
+                        if not st.session_state.get("scan_history"):
+                            st.session_state.scan_history = []
+                        st.session_state.scan_history.append({
+                            "time":     datetime.now().strftime("%H:%M:%S"),
+                            "file":     uploaded.name,
+                            "verdict":  res["verdict"],
+                            "conf":     res["confidence"],
+                            "cnn":      res["cnn_score"],
+                            "ae":       res["ae_error"],
+                            "rid":      res["result_id"],
+                        })
+
+                        st.session_state.page = "output"
+                        st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -2093,8 +2682,9 @@ def page_output():
     st.markdown('<div class="sec-label">Technical forensic log</div>',
                 unsafe_allow_html=True)
 
-    bad = T["log_bad"]   # red style string e.g. "color:#B03030"
-    ok  = T["log_ok"]    # green style string e.g. "color:#2A6A10"
+    bad  = T["log_bad"]   # red — confirmed anomaly
+    ok   = T["log_ok"]    # green — clean / normal
+    warn = T.get("log_warn", "color:#9A6200;font-weight:600")  # amber — borderline
 
     log = '<div class="log">'
 
@@ -2113,11 +2703,21 @@ def page_output():
         f"{'above' if r['cnn_score'] > 50 else 'below'} 50% fake threshold",
         bad if r["cnn_score"] > 50 else ok)
 
-    log += mklog(
-        "AE_Error",
-        f"{r['ae_error']:.4f} — "
-        f"{'elevated above 0.030 baseline' if r['ae_error'] > 0.030 else 'normal within 0.025 baseline'}",
-        bad if r["ae_error"] > 0.030 else ok)
+    # AE threshold tiers aligned with the actual gate logic:
+    #   < 0.028  — clean real face
+    #   0.028–0.035 — borderline, gate still may return REAL
+    #   > 0.035  — elevated, AE trusted over CNN
+    _ae = r['ae_error']
+    if _ae < 0.028:
+        _ae_lbl  = f"{_ae:.4f} — normal, within 0.025 real face baseline"
+        _ae_col  = ok
+    elif _ae < 0.035:
+        _ae_lbl  = f"{_ae:.4f} — borderline (0.028–0.035 range, gates may override)"
+        _ae_col  = warn
+    else:
+        _ae_lbl  = f"{_ae:.4f} — elevated above 0.035 threshold, AE anomaly detected"
+        _ae_col  = bad
+    log += mklog("AE_Error", _ae_lbl, _ae_col)
 
     #Verdict row 
     verd_style = bad if is_fake else (bad if is_uncertain else ok)
@@ -2128,7 +2728,7 @@ def page_output():
 
     # Performance and session rows
     log += mklog("Analysis_Mode",
-                 "Sequential CNN → AE pipeline + LogReg meta-learner")
+                 "Sequential CNN - AE pipeline and LogReg meta-learner")
     log += mklog("Process_Time",  f"{r['process_time']}s")
     log += mklog("Session_Scans", str(db_count()))
 
@@ -2136,15 +2736,11 @@ def page_output():
     ov = r.get("ov_tier")
     if ov == "gate":
         log += mklog("CNN_Gate",
-            f"CNN {r['cnn_score']:.1f}% — strong REAL signal, AE within 0.035 baseline",
+            "CNN < 20% — strong REAL signal, AE override blocked",
             ok)
-    elif ov == "ae_override":
-        log += mklog("AE_Override",
-            f"CNN < 20% but AE {r['ae_error']:.4f} elevated — gate blocked, AE trusted",
-            bad)
     elif ov == 0:
         log += mklog("AE_Override",
-            "Tier 0b — strong CNN REAL + low quality image", ok)
+            "Tier 0b — strong CNN REAL and low quality image", ok)
     elif ov == 1:
         log += mklog("AE_Override",
             "Tier 1 — borderline CNN overridden by clean AE error", ok)
@@ -2167,10 +2763,10 @@ def page_output():
         '<div class="sec-label" style="margin-top:14px">AI forensic summary</div>',
         unsafe_allow_html=True)
 
-    with st.spinner("Generating summary..."):
-        tier, txt = ai_summary(r)
+    # Generate summary fresh every time — rule-based fallback is instant
+    # (caching caused stale summaries from previous scans to appear)
+    tier, txt = ai_summary(r)
 
-    # Label showing which engine generated the summary
     tl = ("Anthropic API"  if tier == "API"       else
           "Local LLM"      if tier == "LOCAL-LLM"  else
           "Onboard expert parser")
@@ -2185,31 +2781,80 @@ def page_output():
     </div>""", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # ACTION BUTTONS 
+    # Verdict plain-English explanation 
+    verdict_explain = {
+        "FAKE": (
+            f"<b style=\"color:\" >FAKE — What this means:</b>  DEEPTRUST detected signs of digital manipulation "
+            f"at {r['confidence']}% confidence. This could be a face-swap, GAN-generated "
+            f"face, or other AI-synthesised content. This is forensic evidence only — "
+            f"always seek expert human review before drawing formal conclusions."
+        ),
+        "REAL": (
+            f"<b>REAL — What this means:</b> DEEPTRUST found no significant manipulation "
+            f"signatures at {r['confidence']}% confidence. The face appears authentic. "
+            f"Note: no deepfake detector is 100% accurate — treat this alongside other evidence."
+        ),
+        "UNCERTAIN": (
+            f"<b>UNCERTAIN — What this means:</b> The AI signals were too ambiguous for a confident "
+            f"verdict. This can happen with high-quality deepfakes or heavily processed images. "
+            f"Independent expert forensic analysis is strongly recommended."
+        ),
+    }
+    exp_text = verdict_explain.get(r["verdict"], "")
+    if exp_text:
+        st.markdown(f"""
+        <div style="background:{T['bg_sec']};border:1px solid {T['border']};
+             border-radius:8px;padding:14px 16px;margin-bottom:16px;
+             font-size:13px;color:{T['txt2']};line-height:1.7;">
+            {exp_text}
+        </div>""", unsafe_allow_html=True)
+
+    # Session activity log
+    history = st.session_state.get("scan_history") or []
+    if len(history) > 0:
+        with st.expander(f"Session activity — {len(history)} scan{'s' if len(history)!=1 else ''} this session"):
+            st.markdown(f"""<div style="font-size:11px;color:{T['muted']};margin-bottom:8px;">
+                Session: {r.get('session_id','')} · Started: {st.session_state.get('session_start','')}
+            </div>""", unsafe_allow_html=True)
+            for i, h in enumerate(history, 1):
+                vcol = T['bar_fake'] if h['verdict']=="FAKE" else (
+                       T['bar_ok'] if h['verdict']=="REAL" else "#7B6EBB")
+                st.markdown(f"""
+                <div style="display:flex;align-items:center;gap:12px;
+                     padding:8px 0;border-bottom:1px solid {T['border']};
+                     font-size:12px;flex-wrap:wrap;">
+                    <span style="color:{T['muted']};min-width:20px;">#{i}</span>
+                    <span style="color:{T['muted']};min-width:55px;">{h['time']}</span>
+                    <span style="color:{T['txt']};flex:1;">{h['file']}</span>
+                    <span style="color:{vcol};font-weight:600;min-width:70px;">{h['verdict']}</span>
+                    <span style="color:{T['muted']};">{h['conf']:.1f}%</span>
+                </div>""", unsafe_allow_html=True)
+
+    # Action buttons
     st.markdown("<br>", unsafe_allow_html=True)
     cb, cp = st.columns([1, 2])
 
     with cb:
-        # New scan button — clears session and returns to upload page
-        if st.button("New scan"):
-            clear_session()
+        if st.button("New scan", key="new_scan_btn"):
+            start_new_scan()          # keeps session ID and history
             st.session_state.page = "input"
             st.rerun()
 
     with cp:
-        # PDF download button — generates report on click
         pdf = make_pdf(r, txt)
         st.download_button(
-            label     = "Download PDF report",
+            label     = "Download PDF forensic report",
             data      = pdf,
             file_name = f"{r['result_id']}_{datetime.now().strftime('%Y%m%d')}.pdf",
             mime      = "application/pdf",
             type      = "primary")
 
+
+
     # Legal disclaimer footer 
     st.markdown(f"""
     <div class="disclaimer">
-        DEEPTRUST v1.0 — forensic assistance only, not legal evidence.<br>
+        DEEPTRUST v1.9 — forensic assistance only, not legal evidence.<br>
         Data purged on session close — Kenya Data Protection Act (2019).<br>
         {r['result_id']} | {r['timestamp']}
     </div>""", unsafe_allow_html=True)
@@ -2223,8 +2868,15 @@ def page_output():
 #   anything else - show the results page (page_output)
 
 
-if st.session_state.page == "input":
-    page_input()    # Consent and Upload flow (Steps 1 and 2)
+# Route to the correct page based on session state
+if st.session_state.page == "welcome":
+    page_welcome()  # Landing page — first thing users see
+elif st.session_state.page == "help":
+    page_help()     # Full help guide page
+elif st.session_state.page == "log":
+    page_log()      # My scans
+elif st.session_state.page == "input":
+    page_input()    # Consent - Upload flow (Steps 1 and 2)
 else:
     page_output()   # Results display (Step 3)
 

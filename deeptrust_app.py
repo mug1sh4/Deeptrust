@@ -110,6 +110,8 @@ LIGHT = dict(
     accent       = "#1B3A5C",   # Deep navy blue — primary brand colour
     accent2      = "#2B5A8C",   # Slightly lighter blue for hover states
     accent_light = "#E8EFF7",   # Very light blue tint for backgrounds
+    btn_bg       = "#1B3A5C",   # Button background — dark navy in light mode
+    btn_txt      = "#FFFFFF",   # Button text — always white
     nav          = "#EEEADE",   # Navigation bar background
     code_bg      = "#E4E0D4",   # Background for code/monospace blocks
     toggle_lbl   = "Dark mode", # Label shown on the theme toggle button
@@ -136,6 +138,7 @@ LIGHT = dict(
     # Forensic log entry colours
     log_bad      = "color:#B03030",  # Red text for flagged log entries
     log_ok       = "color:#2A6A10",  # Green text for normal log entries
+    log_warn     = "color:#8A5200;font-weight:600",  # Amber — borderline
 )
 
 DARK = dict(
@@ -150,9 +153,11 @@ DARK = dict(
     txt          = "#DCE8F0",
     txt2         = "#90AABF",
     muted        = "#506070",
-    accent       = "#4A9EDB",
+    accent       = "#4A9EDB",   # Text/link accent in dark mode
     accent2      = "#6AB4EF",
     accent_light = "#0D2030",
+    btn_bg       = "#1E4E82",   # Button background — darker blue for dark mode
+    btn_txt      = "#FFFFFF",   # Button text — always white
     nav          = "#091420",
     code_bg      = "#081018",
     toggle_lbl   = "Light mode",  # When dark mode is on, button says "Light mode"
@@ -175,6 +180,7 @@ DARK = dict(
     val_ok       = "#80DD80",
     log_bad      = "color:#EE8080",
     log_ok       = "color:#80DD80",
+    log_warn     = "color:#DDAA40;font-weight:600",  # Amber — borderline
 )
 
 # Active theme selection 
@@ -219,42 +225,85 @@ st.markdown(f"""<style>
    widths — prevents layout overflow bugs. */
 *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
 
-/* Global font and background
-   Apply Inter font and theme colours to every element on the page.
-   The !important flag overrides Streamlit's built-in styles. */
+/* Global font and background — works in both light and dark mode */
 html, body, [class*="css"] {{
     font-family: 'Inter', sans-serif !important;
     background: {T['bg_page']} !important;
-    color: {T['txt']} !important;
+    /* NOTE: color intentionally NOT set here — [class*="css"] matches
+       button internals in Streamlit and would override white button text.
+       Text colour is set per-element below instead. */
+}}
+/* Page-level text colour — NO !important so button rules can override */
+body, .main, .block-container, [data-testid="stAppViewContainer"] {{
+    color: {T['txt']};
 }}
 
-/* Streamlit container overrides 
-   Target Streamlit's internal DOM elements by their data-testid attributes
-   to apply our background colour and hide default header chrome. */
+/* Target ONLY markdown containers — broad div/span targeting
+   broke button text and step circle numbers in light mode */
+div[data-testid="stMarkdownContainer"] p,
+div[data-testid="stMarkdownContainer"] li,
+div[data-testid="stMarkdownContainer"] h1,
+div[data-testid="stMarkdownContainer"] h2,
+div[data-testid="stMarkdownContainer"] h3,
+div[data-testid="stMarkdownContainer"] strong,
+div[data-testid="stMarkdownContainer"] em {{
+    color: {T['txt']} !important;
+}}
+div[data-testid="stMarkdownContainer"] a {{
+    color: {T['accent']} !important;
+}}
+.stCaption p {{ color: {T['muted']} !important; }}
+/* button rules consolidated below */
+
+/* Streamlit container overrides */
 [data-testid="stAppViewContainer"] {{ background: {T['bg_page']} !important; }}
 [data-testid="stHeader"], [data-testid="stToolbar"] {{ background: transparent !important; }}
-
-/* Hide Streamlit's default hamburger menu, footer, and header bar
-   so users see a clean, app-like interface without Streamlit branding. */
 #MainMenu, footer, header {{ visibility: hidden; }}
 
-/*  Responsive layout 
-   max-width: 100% makes the app use the full screen width on desktop.
-   The @media query reduces padding on mobile screens (below 768px width)
-   and hides elements that would look cluttered on a small screen. */
+/* Block container width */
 .block-container {{
     max-width: 100% !important;
     padding: 0 1.5rem !important;
 }}
-@media (max-width: 768px) {{
-    .block-container {{ padding: 0 0.75rem !important; }}
-    .topbar {{ flex-wrap: wrap; gap: 8px; padding: 10px 12px !important; }}
-    .logo-sub {{ display: none; }}    /* hide tagline on mobile */
-    .steps span {{ display: none; }}  /* hide step labels on mobile */
-    .step-line {{ width: 14px; }}     /* shorten step connector lines */
+
+/* ── Mobile navbar: force buttons into a 2x2 grid ─────────────────────
+   On phones, Streamlit columns stack vertically making the navbar huge.
+   This CSS forces the first horizontal block (navbar) to stay as a row
+   and wraps into 2 columns max so buttons remain compact. */
+@media (max-width: 640px) {{
+    .block-container {{ padding: 0 0.5rem !important; }}
+
+    /* Force navbar columns to stay in a row and wrap at 2 per line */
+    div[data-testid="stVerticalBlock"] > div:first-child
+    div[data-testid="stHorizontalBlock"] {{
+        flex-wrap: wrap !important;
+        gap: 4px !important;
+        padding: 6px 8px !important;
+    }}
+    div[data-testid="stVerticalBlock"] > div:first-child
+    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {{
+        min-width: calc(50% - 8px) !important;
+        max-width: calc(50% - 8px) !important;
+        flex: 0 0 calc(50% - 8px) !important;
+    }}
+    /* First column (logo) takes full width */
+    div[data-testid="stVerticalBlock"] > div:first-child
+    div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child {{
+        min-width: 100% !important;
+        max-width: 100% !important;
+        flex: 0 0 100% !important;
+    }}
+    /* Smaller button text on mobile */
+    div[data-testid="stVerticalBlock"] > div:first-child
+    div[data-testid="stHorizontalBlock"] .stButton > button {{
+        font-size: 11px !important;
+        padding: 6px 8px !important;
+    }}
+    /* Hide tagline on mobile */
+    .logo-sub {{ display: none !important; }}
 }}
 
-/* Prevent Streamlit columns from overflowing their container */
+/* Prevent column overflow */
 [data-testid="column"] {{ min-width: 0 !important; }}
 
 /* Style images displayed via st.image() — rounded corners and a border */
@@ -295,6 +344,16 @@ html, body, [class*="css"] {{
 }}
 /* Force text inside download buttons to stay white */
 .stDownloadButton > button *, button[kind="primary"] * {{ color: #fff !important; }}
+
+/* HIGH SPECIFICITY: Restore primary button appearance everywhere.
+   The navbar rule (transparent background) must not bleed onto
+   primary action buttons like "Start a deepfake scan now". */
+.stButton > button[data-testid="baseButton-primary"] {{
+    background: {T['accent']} !important;
+    color: #FFFFFF !important;
+    border: none !important;
+    font-weight: 600 !important;
+}}
 
 /*  File upload area 
    Style the drag-and-drop file upload box with a dashed border to signal
@@ -576,6 +635,47 @@ div[data-testid="stFileUploader"] span {{
     margin-right:5px; margin-bottom:4px; }}
 ::-webkit-scrollbar {{ width:6px; }}
 ::-webkit-scrollbar-thumb {{ background:{T['border2']}; border-radius:3px; }}
+
+/* ══ BUTTON COLOURS — single definitive block ═══════════════════════
+   RULE 1: All .stButton buttons → white text on accent background.
+   RULE 2: Nav buttons (inside first horizontal block) → overridden
+           back to dark text / transparent bg using a more specific
+           CSS selector path that wins the cascade automatically.
+   No data-testid guessing — just element + structural selectors. */
+
+/* ALL buttons default: white text, accent background */
+.stButton > button,
+.stButton > button *,
+.stDownloadButton > button,
+.stDownloadButton > button * {{
+    color: #FFFFFF !important;
+}}
+.stButton > button,
+.stDownloadButton > button {{
+    background-color: {T['accent']} !important;
+    border: none !important;
+    border-radius: 6px !important;
+    font-weight: 500 !important;
+}}
+
+/* NAV BUTTONS OVERRIDE: more specific path → wins cascade
+   These are the Home / My scans / Help / Theme toggle buttons only */
+div[data-testid="stVerticalBlock"] > div:first-child
+div[data-testid="stHorizontalBlock"] .stButton > button {{
+    background: transparent !important;
+    border: 1px solid {T['border']} !important;
+    color: {T['txt2']} !important;
+    font-size: 12px !important;
+    padding: 5px 10px !important;
+}}
+div[data-testid="stVerticalBlock"] > div:first-child
+div[data-testid="stHorizontalBlock"] .stButton > button * {{
+    color: {T['txt2']} !important;
+}}
+div[data-testid="stVerticalBlock"] > div:first-child
+div[data-testid="stHorizontalBlock"] .stButton > button:hover {{
+    background: {T['bg_sec']} !important;
+}}
 
 </style>""", unsafe_allow_html=True)
 
@@ -1037,16 +1137,16 @@ def run_inference(pil_img, mode):
 
     ov_tier = None
 
-    # Quality-aware override tiers 
+    # ── Quality-aware override tiers ─────────────────────────────────
     # Applied after the meta-learner. Three CNN zones, each with
     # different AE thresholds based on calibration testing.
     #
     # Zone A (CNN < 0.20): extremely confident REAL signal from CNN
-    #   - AE < 0.035 - gate fires, REAL  (WhatsApp / screenshot protection)
-    #   - AE ≥ 0.035 - gate blocked, FAKE kept  (animated / GPT face)
+    #   - AE < 0.035 → gate fires, REAL  (WhatsApp / screenshot protection)
+    #   - AE ≥ 0.035 → gate blocked, FAKE kept  (animated / GPT face)
     #
-    # Zone B (CNN 0.20–0.50): mid-range CNN + clean AE - both say REAL
-    #   - AE < 0.028 - gate fires, REAL
+    # Zone B (CNN 0.20–0.50): mid-range CNN + clean AE → both say REAL
+    #   - AE < 0.028 → gate fires, REAL
     #
     # Zones C–D (higher CNN): handled by Tier 0b, Tier 1, Tier 2
 
@@ -1063,11 +1163,11 @@ def run_inference(pil_img, mode):
         elif cnn_raw < 0.20 and ae_err >= 0.035:
             # Zone A elevated — CNN says real but AE significantly elevated
             # Split by CNN floor:
-            #   CNN < 7%  - extremely strong REAL signal, AE cannot override
+            #   CNN < 9%  → extremely strong REAL signal, AE cannot override
             #              (0.35% CNN on a selfie is categorically different
             #               from 15% CNN on an ambiguous image)
-            #   CNN 7-20% - genuinely ambiguous, trust the AE (animated/GPT face)
-            if cnn_raw < 0.07:
+            #   CNN 9-20% → genuinely ambiguous, trust the AE (animated/GPT face)
+            if cnn_raw < 0.09:
                 # CNN floor — too strong a REAL signal for AE to override
                 verdict = "REAL"
                 fp      = fp * 0.3
@@ -1085,7 +1185,7 @@ def run_inference(pil_img, mode):
             ov_tier = "gate"
 
         # Tier 0b — Strong CNN REAL + low quality image
-        # CNN 15-30% on blurry/dark image - AE misread due to artifacts
+        # CNN 15-30% on blurry/dark image → AE misread due to artifacts
         elif (0.15 <= cnn_raw < 0.30
                 and fp < 0.65
                 and is_low_quality):
@@ -1708,8 +1808,9 @@ def navbar():
         gap: 0 !important;
     }}
     /* Nav button style */
+    /* Navbar buttons — transparent with border (Home, My scans, Help, theme) */
     div[data-testid="stVerticalBlock"] > div:first-child
-    div[data-testid="stHorizontalBlock"] .stButton > button {{
+    div[data-testid="stHorizontalBlock"] .stButton > button[data-testid="baseButton-secondary"] {{
         background: transparent !important;
         border: 1px solid {T['border']} !important;
         color: {T['txt2']} !important;
@@ -1718,29 +1819,37 @@ def navbar():
         width: 100%;
     }}
     div[data-testid="stVerticalBlock"] > div:first-child
-    div[data-testid="stHorizontalBlock"] .stButton > button:hover {{
+    div[data-testid="stHorizontalBlock"] .stButton > button[data-testid="baseButton-secondary"]:hover {{
         background: {T['bg_sec']} !important; color: {T['txt']} !important;
     }}
     /* Mobile: collapse nav buttons, show select dropdown */
-    /* Mobile: Streamlit columns auto-wrap on small screens */
+    /* ── Mobile: popover menu, hide desktop buttons ─────────────────── */
     @media (max-width: 640px) {{
-        div[data-testid="stVerticalBlock"] > div:first-child
-        div[data-testid="stHorizontalBlock"] .stButton > button {{
-            font-size: 10px !important;
-            padding: 4px 6px !important;
-        }}
+        .block-container {{ padding: 0 0.5rem !important; }}
+        .dt-desktop-nav {{ display: none !important; }}
+        .dt-mobile-nav  {{ display: block !important; }}
+        .dt-logo-sub    {{ display: none !important; }}
     }}
-    /* Help/log page text always readable in both modes */
+    @media (min-width: 641px) {{
+        .dt-desktop-nav {{ display: block !important; }}
+        .dt-mobile-nav  {{ display: none !important; }}
+    }}
+    /* Help/log page text — readable in both modes */
     .dt-page-body {{ color: var(--color-text-primary) !important; }}
-    /* Dark mode metric card text */
     .metric .m-val, .metric .m-lbl, .metric .m-src {{
         color: var(--color-text-primary) !important;
     }}
     </style>""", unsafe_allow_html=True)
 
     # Logo row (always visible) 
-    col_logo, col_home, col_log, col_help, col_theme = st.columns([4, 1, 1.1, 1, 1.3])
+    # ── Desktop navbar: logo + 4 buttons in one row ──────────────────
+    # ── Mobile navbar: logo + popover menu (no rerun loop) ───────────
+    # st.popover opens a floating panel on click — does NOT fire on
+    # render, only when user interacts. Safe from infinite rerun loops.
 
+    col_logo, col_home, col_log, col_help, col_theme, col_menu =         st.columns([4, 1, 1.1, 1, 1.3, 0.8])
+
+    # Logo — always visible on all screen sizes
     with col_logo:
         st.markdown(f"""
         <div style="display:flex;align-items:center;gap:10px;padding:2px 0;">
@@ -1760,30 +1869,64 @@ def navbar():
             <div>
                 <div style="font-size:14px;font-weight:600;
                      color:{T['txt']};line-height:1.2;">DEEPTRUST</div>
-                <div style="font-size:10px;color:{T['muted']};">
-                    An AI-powered image deepfake detection tool &nbsp;|&nbsp; TUK 2026</div>
+                <div style="font-size:10px;color:{T['muted']};"
+                     class="dt-logo-sub">
+                    AI deepfake detection &nbsp;|&nbsp; TUK 2026</div>
             </div>
         </div>""", unsafe_allow_html=True)
 
+    # Desktop buttons — hidden on mobile via CSS
     with col_home:
+        st.markdown('<div class="dt-desktop-nav">', unsafe_allow_html=True)
         if st.button("Home", key="nav_home"):
             st.session_state.page = "welcome"
             st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
     with col_log:
+        st.markdown('<div class="dt-desktop-nav">', unsafe_allow_html=True)
         if st.button("My scans", key="nav_log"):
             st.session_state.page = "log"
             st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
     with col_help:
+        st.markdown('<div class="dt-desktop-nav">', unsafe_allow_html=True)
         if st.button("Help", key="nav_help"):
             st.session_state.page = "help"
             st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
     with col_theme:
+        st.markdown('<div class="dt-desktop-nav">', unsafe_allow_html=True)
         if st.button(T["toggle_lbl"], key="tm"):
             st.session_state.dark_mode = not st.session_state.dark_mode
             st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # Inject late button fix on every render
+    inject_button_fix()
+
+    # Mobile popover menu — shown only on small screens via CSS
+    # st.popover does NOT rerun on render — only on interaction inside it
+    with col_menu:
+        st.markdown('<div class="dt-mobile-nav">', unsafe_allow_html=True)
+        with st.popover("Menu", use_container_width=True):
+            st.markdown(f"**Navigate**")
+            if st.button("Home", key="mob_home", use_container_width=True):
+                st.session_state.page = "welcome"
+                st.rerun()
+            if st.button("My scans", key="mob_scans", use_container_width=True):
+                st.session_state.page = "log"
+                st.rerun()
+            if st.button("Help", key="mob_help", use_container_width=True):
+                st.session_state.page = "help"
+                st.rerun()
+            st.divider()
+            if st.button(T["toggle_lbl"], key="mob_theme", use_container_width=True):
+                st.session_state.dark_mode = not st.session_state.dark_mode
+                st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
 
 
@@ -1868,6 +2011,65 @@ def mklog(k, v, s=""):
 
 # SECTION 18b: WELCOME PAGE — page_welcome()
 # The first page users see. Explains what DEEPTRUST is, how to use it, shows key stats, and provides a single clear Start button.
+
+def inject_button_fix():
+    """
+    Late CSS injection — runs after Streamlit loads its own styles.
+    Uses btn_bg (not accent) so dark mode buttons are dark navy,
+    not the lighter accent blue used for text/links.
+    """
+    st.markdown(f"""<style>
+/* Primary action buttons — btn_bg background, white text */
+.stButton > button {{
+    color: #FFFFFF !important;
+    background-color: {T['btn_bg']} !important;
+    border: none !important;
+}}
+.stButton > button p,
+.stButton > button span,
+.stButton > button div {{
+    color: #FFFFFF !important;
+}}
+/* Download button */
+.stDownloadButton > button,
+.stDownloadButton > button p,
+.stDownloadButton > button span,
+.stDownloadButton > button div {{
+    color: #FFFFFF !important;
+    background-color: {T['btn_bg']} !important;
+    border: none !important;
+}}
+/* Nav buttons — transparent with visible text */
+div[data-testid="stVerticalBlock"] > div:first-child
+div[data-testid="stHorizontalBlock"] .stButton > button {{
+    color: {T['txt']} !important;
+    background: transparent !important;
+    border: 1px solid {T['border']} !important;
+    font-size: 12px !important;
+    padding: 5px 10px !important;
+}}
+div[data-testid="stVerticalBlock"] > div:first-child
+div[data-testid="stHorizontalBlock"] .stButton > button p,
+div[data-testid="stVerticalBlock"] > div:first-child
+div[data-testid="stHorizontalBlock"] .stButton > button span,
+div[data-testid="stVerticalBlock"] > div:first-child
+div[data-testid="stHorizontalBlock"] .stButton > button div {{
+    color: {T['txt']} !important;
+}}
+/* Popover Menu button — always visible in both modes */
+div[data-testid="stPopover"] > div > .stButton > button {{
+    color: {T['txt']} !important;
+    background: {T['bg_sec']} !important;
+    border: 1px solid {T['border']} !important;
+}}
+div[data-testid="stPopover"] > div > .stButton > button p,
+div[data-testid="stPopover"] > div > .stButton > button span,
+div[data-testid="stPopover"] > div > .stButton > button div {{
+    color: {T['txt']} !important;
+}}
+</style>""", unsafe_allow_html=True)
+
+
 def page_welcome():
     """
     Landing page
@@ -2200,8 +2402,10 @@ def page_help():
     """Help page — pure Streamlit widgets, no HTML rendering issues."""
     navbar()
 
-    st.markdown("### DEEPTRUST — Help Guide")
-    st.caption("Everything you need to know about using this system.")
+    st.markdown(f"<h3 style='color:{T["txt"]};'>DEEPTRUST — Help Guide</h3>",
+                unsafe_allow_html=True)
+    st.markdown(f"<p style='color:{T["txt2"]};font-size:13px;'>Everything you need to know about using this system.</p>",
+                unsafe_allow_html=True)
     st.divider()
 
     left, right = st.columns([3, 2], gap="medium")
@@ -2802,10 +3006,13 @@ def page_output():
     }
     exp_text = verdict_explain.get(r["verdict"], "")
     if exp_text:
+        # Border colour matches verdict — red for FAKE, green for REAL, purple for UNCERTAIN
+        vbdr = T['fake_br'] if r["verdict"]=="FAKE" else (T['real_br'] if r["verdict"]=="REAL" else "#7B6EBB")
         st.markdown(f"""
         <div style="background:{T['bg_sec']};border:1px solid {T['border']};
+             border-left:4px solid {vbdr};
              border-radius:8px;padding:14px 16px;margin-bottom:16px;
-             font-size:13px;color:{T['txt2']};line-height:1.7;">
+             font-size:13px;color:{T['txt']};line-height:1.7;">
             {exp_text}
         </div>""", unsafe_allow_html=True)
 

@@ -278,6 +278,8 @@ div[data-testid="stMarkdownContainer"] a {{
    Positioned inside the topbar (top:6px left:1.5rem).
    The button IS Streamlit's native toggle so clicking always works.
    We just make it look like a proper nav button instead of ">>" */
+/* Sidebar collapsed toggle — always visible in both light and dark mode.
+   Uses a solid border as fallback in case background fails on some browsers. */
 [data-testid="stSidebarCollapsedControl"] {{
     position: fixed !important;
     top: 6px !important;
@@ -287,20 +289,21 @@ div[data-testid="stMarkdownContainer"] a {{
     visibility: visible !important;
     opacity: 1 !important;
     background: {T['btn_bg']} !important;
+    border: 2px solid {T['btn_bg']} !important;
     border-radius: 6px !important;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.25) !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.35) !important;
     padding: 2px !important;
     width: 38px !important;
     height: 38px !important;
     align-items: center !important;
     justify-content: center !important;
 }}
-/* Hide the >> arrow SVG — show hamburger lines instead */
 [data-testid="stSidebarCollapsedControl"] button {{
-    background: transparent !important;
+    background: {T['btn_bg']} !important;
     border: none !important;
-    width: 34px !important;
-    height: 34px !important;
+    border-radius: 4px !important;
+    width: 32px !important;
+    height: 32px !important;
     padding: 0 !important;
     cursor: pointer !important;
     display: flex !important;
@@ -308,22 +311,19 @@ div[data-testid="stMarkdownContainer"] a {{
     justify-content: center !important;
     position: relative !important;
 }}
+/* Hide default SVG arrow */
 [data-testid="stSidebarCollapsedControl"] button svg {{
     display: none !important;
 }}
-/* Draw hamburger lines using pseudo-elements on the button */
+/* Hamburger lines — always white because button background is always dark */
 [data-testid="stSidebarCollapsedControl"] button::before {{
     content: "" !important;
     display: block !important;
-    width: 18px !important;
+    width: 16px !important;
     height: 2px !important;
-    background: #ffffff !important;
-    box-shadow: 0 6px 0 #ffffff, 0 -6px 0 #ffffff !important;
+    background: #FFFFFF !important;
+    box-shadow: 0 5px 0 #FFFFFF, 0 -5px 0 #FFFFFF !important;
     border-radius: 2px !important;
-}}
-/* Sidebar edge collapse button — keep visible */
-section[data-testid="stSidebar"] > div:first-child > div > div {{
-    visibility: visible !important;
 }}
 
 /* Block container width */

@@ -45,7 +45,7 @@ except ImportError:
 # initial_sidebar_state="collapsed" hides the sidebar on load for a clean UI.
 st.set_page_config(
     page_title="DEEPTRUST",       # Text shown in the browser tab
-    page_icon=None,               # No favicon icon set
+    page_icon="🔍",               # Favicon icon for browser tab
     layout="wide",                # Use full screen width
     initial_sidebar_state="collapsed"  # Hide the sidebar by default
 )
@@ -67,7 +67,7 @@ for k, v in dict(
     scan_count     = 0,          # Tracks how many scans done this session
     db_conn        = None,       # SQLite connection — in-memory, wiped on session end
     session_start  = None,       # Timestamp when session began — shown in profile badge
-    scan_history   = None,       # List of past scan summaries for activity log (init to None, converted on first use)
+    scan_history   = [],         # List of past scan summaries for activity log
     show_help      = False,      # Legacy — kept for compatibility
     page_before_log = None,     # Remember which page to return to from log
     confirm_new    = False,      # Confirmation state before purging session
@@ -139,6 +139,13 @@ LIGHT = dict(
     log_bad      = "color:#B03030",  # Red text for flagged log entries
     log_ok       = "color:#2A6A10",  # Green text for normal log entries
     log_warn     = "color:#8A5200;font-weight:600",  # Amber — borderline
+    # UNCERTAIN verdict palette — light mode purple
+    unc_bg       = "#F0EEF8",
+    unc_br       = "#9B8FCC",
+    unc_txt      = "#4A3D88",
+    unc_sub      = "#6A5DAA",
+    unc_conf_bg  = "#E8E0F8",
+    unc_conf_txt = "#3A2D7A",
 )
 
 DARK = dict(
@@ -173,6 +180,13 @@ DARK = dict(
     real_sub     = "#60BB60",
     real_conf_bg = "#102A10",
     real_conf_txt= "#90EE90",
+    # UNCERTAIN verdict palette — dark mode purple
+    unc_bg       = "#130E22",
+    unc_br       = "#4A3A88",
+    unc_txt      = "#C0A8FF",
+    unc_sub      = "#9A82DD",
+    unc_conf_bg  = "#1E1535",
+    unc_conf_txt = "#C0A8FF",
     bar_fake     = "#E06060",
     bar_ok       = "#60BB60",
     bar_info     = "#4A9EDB",
@@ -314,46 +328,9 @@ div[data-testid="stMarkdownContainer"] a {{
     border: 1px solid {T['border']};
 }}
 
-/* Button styles
-   Override Streamlit's default grey buttons with DEEPTRUST brand colours.
-   Primary buttons (default) use accent blue.
-   Secondary buttons use the background section colour with a border.
-   Download buttons always span full width for easy tap on mobile. */
-.stButton > button {{
-    background: {T['accent']} !important;
-    color: #fff !important;
-    border: none !important;
-    border-radius: 6px !important;
-    font-size: 13px !important;
-    font-weight: 500 !important;
-    padding: 9px 18px !important;
-}}
-.stButton > button:hover {{ opacity: .87 !important; }}  /* subtle hover effect */
-.stButton > button[kind="secondary"] {{
-    background: {T['bg_sec']} !important;
-    color: {T['txt']} !important;
-    border: 1px solid {T['border']} !important;
-}}
-.stDownloadButton > button {{
-    background: {T['accent']} !important;
-    color: #fff !important;
-    border: none !important;
-    border-radius: 6px !important;
-    font-size: 13px !important;
-    width: 100% !important;
-}}
-/* Force text inside download buttons to stay white */
-.stDownloadButton > button *, button[kind="primary"] * {{ color: #fff !important; }}
-
-/* HIGH SPECIFICITY: Restore primary button appearance everywhere.
-   The navbar rule (transparent background) must not bleed onto
-   primary action buttons like "Start a deepfake scan now". */
-.stButton > button[data-testid="baseButton-primary"] {{
-    background: {T['accent']} !important;
-    color: #FFFFFF !important;
-    border: none !important;
-    font-weight: 600 !important;
-}}
+/* Button styles — consolidated in the BUTTON COLOURS block below.
+   Streamlit default grey overridden with DEEPTRUST brand colours.
+   Nav buttons use .dt-nav-btn wrapper class (see navbar function). */
 
 /*  File upload area 
    Style the drag-and-drop file upload box with a dashed border to signal
@@ -577,16 +554,13 @@ div[data-testid="stFileUploader"] span {{
     border-radius:3px; padding:1px 6px; color:{T['muted']}; margin-left:6px;
 }}
 
-/* UNCERTAIN verdict banner 
-   Purple theme for cases where neither CNN nor AE is confident enough.
-   Hardcoded colours (not theme-dependent) so purple appears in both
-   light and dark mode — purple is universally readable. */
-.v-uncertain  {{ background:#F0EEF8; border:1px solid #9B8FCC;
-    border-left:4px solid #7B6EBB; }}
-.v-title-uncertain {{ font-size:18px; font-weight:500; color:#4A3D88; }}
-.v-sub-uncertain   {{ font-size:12px; color:#6A5DAA; margin-top:3px; }}
+/* UNCERTAIN verdict banner — theme-aware purple */
+.v-uncertain  {{ background:{T['unc_bg']}; border:1px solid {T['unc_br']};
+    border-left:4px solid {T['unc_br']}; }}
+.v-title-uncertain {{ font-size:18px; font-weight:500; color:{T['unc_txt']}; }}
+.v-sub-uncertain   {{ font-size:12px; color:{T['unc_sub']}; margin-top:3px; }}
 .conf-uncertain    {{ display:inline-block; font-size:12px; font-weight:500;
-    background:#E8E0F8; color:#3A2D7A;
+    background:{T['unc_conf_bg']}; color:{T['unc_conf_txt']};
     border-radius:4px; padding:3px 10px; margin-top:8px; }}
 
 /*  Miscellaneous components 
@@ -636,45 +610,91 @@ div[data-testid="stFileUploader"] span {{
 ::-webkit-scrollbar {{ width:6px; }}
 ::-webkit-scrollbar-thumb {{ background:{T['border2']}; border-radius:3px; }}
 
-/* ══ BUTTON COLOURS — single definitive block ═══════════════════════
-   RULE 1: All .stButton buttons → white text on accent background.
-   RULE 2: Nav buttons (inside first horizontal block) → overridden
-           back to dark text / transparent bg using a more specific
-           CSS selector path that wins the cascade automatically.
-   No data-testid guessing — just element + structural selectors. */
+/* ══ BUTTON COLOURS — definitive block ══════════════════════════════
+   Strategy: ALL .stButton buttons get accent background + white text.
+   Nav buttons get a unique wrapper class .dt-nav-btn and are overridden
+   via that class — no fragile structural selectors needed.
+   Primary CTA buttons keep full accent styling always.            */
 
-/* ALL buttons default: white text, accent background */
-.stButton > button,
-.stButton > button *,
-.stDownloadButton > button,
-.stDownloadButton > button * {{
-    color: #FFFFFF !important;
-}}
-.stButton > button,
-.stDownloadButton > button {{
+/* Step 1: All buttons → accent bg, white text */
+.stButton > button {{
     background-color: {T['accent']} !important;
+    color: #FFFFFF !important;
     border: none !important;
     border-radius: 6px !important;
+    font-size: 13px !important;
     font-weight: 500 !important;
+    padding: 9px 18px !important;
+    width: 100%;
+}}
+.stButton > button:hover {{ opacity: 0.87 !important; }}
+.stButton > button p,
+.stButton > button span,
+.stButton > button div {{
+    color: #FFFFFF !important;
 }}
 
-/* NAV BUTTONS OVERRIDE: more specific path → wins cascade
-   These are the Home / My scans / Help / Theme toggle buttons only */
-div[data-testid="stVerticalBlock"] > div:first-child
-div[data-testid="stHorizontalBlock"] .stButton > button {{
-    background: transparent !important;
-    border: 1px solid {T['border']} !important;
+/* Step 2: Download buttons → same as primary */
+.stDownloadButton > button {{
+    background-color: {T['accent']} !important;
+    color: #FFFFFF !important;
+    border: none !important;
+    border-radius: 6px !important;
+    font-size: 13px !important;
+    width: 100% !important;
+}}
+.stDownloadButton > button p,
+.stDownloadButton > button span {{
+    color: #FFFFFF !important;
+}}
+
+/* Step 3: Nav buttons — override via wrapper class .dt-nav-btn
+   Higher specificity than .stButton > button because of the parent class */
+.dt-nav-btn .stButton > button {{
+    background-color: transparent !important;
     color: {T['txt2']} !important;
+    border: 1px solid {T['border']} !important;
     font-size: 12px !important;
+    font-weight: 500 !important;
     padding: 5px 10px !important;
 }}
-div[data-testid="stVerticalBlock"] > div:first-child
-div[data-testid="stHorizontalBlock"] .stButton > button * {{
+.dt-nav-btn .stButton > button p,
+.dt-nav-btn .stButton > button span,
+.dt-nav-btn .stButton > button div {{
     color: {T['txt2']} !important;
 }}
-div[data-testid="stVerticalBlock"] > div:first-child
-div[data-testid="stHorizontalBlock"] .stButton > button:hover {{
-    background: {T['bg_sec']} !important;
+.dt-nav-btn .stButton > button:hover {{
+    background-color: {T['bg_sec']} !important;
+    color: {T['txt']} !important;
+}}
+.dt-nav-btn .stButton > button:hover p,
+.dt-nav-btn .stButton > button:hover span {{
+    color: {T['txt']} !important;
+}}
+
+/* Step 4: Mobile responsive — hide desktop nav, show menu popover */
+@media (max-width: 640px) {{
+    .block-container {{ padding: 0 0.5rem !important; }}
+    .dt-desktop-nav {{ display: none !important; }}
+    .dt-mobile-nav  {{ display: block !important; }}
+    .dt-logo-sub    {{ display: none !important; }}
+}}
+@media (min-width: 641px) {{
+    .dt-desktop-nav {{ display: block !important; }}
+    .dt-mobile-nav  {{ display: none !important; }}
+}}
+
+/* Step 5: Popover menu button styling */
+div[data-testid="stPopover"] > button {{
+    background-color: {T['bg_sec']} !important;
+    color: {T['txt2']} !important;
+    border: 1px solid {T['border']} !important;
+    border-radius: 6px !important;
+    font-size: 12px !important;
+}}
+div[data-testid="stPopover"] > button p,
+div[data-testid="stPopover"] > button span {{
+    color: {T['txt2']} !important;
 }}
 
 </style>""", unsafe_allow_html=True)
@@ -696,6 +716,7 @@ def get_db():
     """
     if st.session_state.db_conn is None:
         conn = sqlite3.connect(":memory:", check_same_thread=False)
+        conn.execute("PRAGMA foreign_keys = ON")   # enable cascade deletes
         conn.row_factory = sqlite3.Row   # allows result["column_name"] access
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS TBL_SESSIONS (
@@ -835,7 +856,7 @@ def mk_upload():
     uploaded on the same day.
     Example: UP-20260529-4827
     """
-    return f"UP-{datetime.now().strftime('%Y%m%d')}-{np.random.randint(1000,9999)}"
+    return f"UP-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
 
 
 def mk_result(uid):
@@ -928,11 +949,18 @@ def load_models():
     seq_ae = tf.keras.models.load_model(
         "models/deeptrust_seq_ae.keras")
 
-    # Stage 3: Meta-learner — LogReg trained in CPU mode for laptop compatibility, Use pickle instead of joblib.load to handle sklearn version differences between Kaggle (1.6.1) and local environment (1.8.0)
-    with open("models/deeptrust_meta_seq_cpu.joblib", "rb") as f:
-        meta = pickle.load(f)
-    with open("models/deeptrust_scaler_seq_cpu.joblib", "rb") as f:
-        scaler = pickle.load(f)
+    # Stage 3: Meta-learner — try joblib first, fall back to pickle
+    # joblib is the native format; pickle works if sklearn versions differ
+    try:
+        import joblib
+        meta   = joblib.load("models/deeptrust_meta_seq_cpu.joblib")
+        scaler = joblib.load("models/deeptrust_scaler_seq_cpu.joblib")
+    except Exception:
+        import pickle
+        with open("models/deeptrust_meta_seq_cpu.joblib", "rb") as f:
+            meta = pickle.load(f)
+        with open("models/deeptrust_scaler_seq_cpu.joblib", "rb") as f:
+            scaler = pickle.load(f)
 
     # Feature normalisation arrays — computed from real face GAP features during training on Kaggle. Used to scale GAP values to 0-1 range before feeding into the AE.
     feat_min = np.load("models/feat_min.npy")
@@ -1192,7 +1220,7 @@ def run_inference(pil_img, mode):
             verdict = "REAL"
             fp      = fp * 0.4
             conf    = (1 - fp) * 100
-            ov_tier = 0
+            ov_tier = "0b"
 
         # Tier 1 — Borderline CNN + very clean AE
         # CNN 50-65% on a blurry image is unreliable.
@@ -1203,7 +1231,7 @@ def run_inference(pil_img, mode):
             verdict = "REAL"
             fp      = fp * 0.5
             conf    = (1 - fp) * 100
-            ov_tier = 1
+            ov_tier = "1"
 
         # Tier 2 — High CNN + anomalously clean AE
         # CNN 65-95% suggests manipulation, but AE < 0.008 is suspiciously
@@ -1214,7 +1242,7 @@ def run_inference(pil_img, mode):
             fp      = fp * 0.65
             verdict = "FAKE" if fp >= 0.5 else "REAL"
             conf    = (fp * 100) if verdict == "FAKE" else ((1 - fp) * 100)
-            ov_tier = 2
+            ov_tier = "2"
 
     # UNCERTAIN gate
     # Meta-learner is genuinely ambiguous and no tier has overridden.
@@ -1228,26 +1256,17 @@ def run_inference(pil_img, mode):
         verdict = "UNCERTAIN"
         ov_tier = "U"
 
+    # UNCERTAIN gate for low-confidence FAKE (asymmetry fix)
+    # A FAKE verdict with fp 0.50-0.65 on a sharp image is also ambiguous.
+    if (verdict == "FAKE"
+            and fp < 0.65
+            and sharpness > 0.70
+            and ov_tier is None):
+        verdict = "UNCERTAIN"
+        ov_tier = "U"
 
-
-# SECTION 14: GRAD-CAM HEATMAP GENERATION
-# Grad-CAM (Gradient-weighted Class Activation Mapping) is the XAI
-# (Explainable AI) component of DEEPTRUST.
-#
-# HOW IT WORKS:
-# Instead of just saying "this is fake", Grad-CAM shows WHERE in the face
-# the CNN detected manipulation by highlighting suspicious regions.
-# It does this by:
-# 1. Taking the CNN's last convolutional layer (block14_sepconv2_act)
-# 2. Computing how much each spatial location contributed to the FAKE decision
-# 3. Creating a heatmap where red = high suspicion, blue = low suspicion
-# 4. Overlaying the heatmap on the original image
-#
-# WHY block14_sepconv2_act?
-# This is the deepest feature map in Xception before the classification head.
-# It contains the highest-level spatial information about the face —
-# ideal for localising manipulation artifacts.
-
+    # SECTION 14: GRAD-CAM HEATMAP GENERATION
+    # Grad-CAM shows WHERE in the face the CNN detected manipulation.
     # Threshold for heatmap display — only show activations above this value
     # 0.4 for Standard mode, 0.3 for High Sensitivity mode (more areas shown)
     thresh = 0.3 if "High" in mode else 0.4
@@ -1452,7 +1471,7 @@ Rules:
         )
 
     # Gate or tier override fired — verdict was changed to REAL
-    if not is_fake and ov in (0, "gate"):
+    if not is_fake and ov in ("0b", "gate"):
         # Explain what actually happened — CNN was confident enough to override
         ae_note = (
             f"Although the Autoencoder recorded a reconstruction error of {ae} "
@@ -1788,71 +1807,35 @@ def navbar():
     sess    = st.session_state.session_id
     scans   = db_count()
     start_t = st.session_state.get("session_start", "")
-    page    = st.session_state.get("page", "welcome")
 
-    # CSS 
-    # Responsive navbar CSS
+    # Navbar background strip + session strip CSS
     st.markdown(f"""<style>
-    .dt-session-wrap {{
-        background: {T['nav']}; border-bottom: 1px solid {T['border']};
-        margin: -4px -1rem 0.6rem -1rem; padding: 3px 1.5rem 7px;
-    }}
-    /* Navbar row — first horizontal block */
-    div[data-testid="stVerticalBlock"] > div:first-child
-    div[data-testid="stHorizontalBlock"] {{
+    .dt-navbar-wrap {{
         background: {T['nav']};
         border-bottom: 1px solid {T['border']};
-        margin: -1rem -1rem 0 -1rem !important;
-        padding: 8px 1.5rem !important;
-        align-items: center;
-        gap: 0 !important;
+        margin: -1rem -1rem 0 -1rem;
+        padding: 6px 1.5rem;
     }}
-    /* Nav button style */
-    /* Navbar buttons — transparent with border (Home, My scans, Help, theme) */
-    div[data-testid="stVerticalBlock"] > div:first-child
-    div[data-testid="stHorizontalBlock"] .stButton > button[data-testid="baseButton-secondary"] {{
-        background: transparent !important;
-        border: 1px solid {T['border']} !important;
-        color: {T['txt2']} !important;
-        font-size: 12px !important; font-weight: 500 !important;
-        padding: 5px 10px !important; border-radius: 6px !important;
-        width: 100%;
+    .dt-session-wrap {{
+        background: {T['nav']};
+        border-bottom: 1px solid {T['border']};
+        margin: 0 -1rem 0.8rem -1rem;
+        padding: 3px 1.5rem 6px;
     }}
-    div[data-testid="stVerticalBlock"] > div:first-child
-    div[data-testid="stHorizontalBlock"] .stButton > button[data-testid="baseButton-secondary"]:hover {{
-        background: {T['bg_sec']} !important; color: {T['txt']} !important;
-    }}
-    /* Mobile: collapse nav buttons, show select dropdown */
-    /* ── Mobile: popover menu, hide desktop buttons ─────────────────── */
-    @media (max-width: 640px) {{
-        .block-container {{ padding: 0 0.5rem !important; }}
-        .dt-desktop-nav {{ display: none !important; }}
-        .dt-mobile-nav  {{ display: block !important; }}
-        .dt-logo-sub    {{ display: none !important; }}
-    }}
-    @media (min-width: 641px) {{
-        .dt-desktop-nav {{ display: block !important; }}
-        .dt-mobile-nav  {{ display: none !important; }}
-    }}
-    /* Help/log page text — readable in both modes */
-    .dt-page-body {{ color: var(--color-text-primary) !important; }}
-    .metric .m-val, .metric .m-lbl, .metric .m-src {{
-        color: var(--color-text-primary) !important;
-    }}
+    /* Remove extra gap Streamlit adds above first block */
+    .block-container > div:first-child {{ margin-top: 0 !important; }}
     </style>""", unsafe_allow_html=True)
 
-    # Logo row (always visible) 
-    # ── Desktop navbar: logo + 4 buttons in one row ──────────────────
-    # ── Mobile navbar: logo + popover menu (no rerun loop) ───────────
-    # st.popover opens a floating panel on click — does NOT fire on
-    # render, only when user interacts. Safe from infinite rerun loops.
+    # ── Navbar row ────────────────────────────────────────────────────
+    st.markdown('<div class="dt-navbar-wrap">', unsafe_allow_html=True)
 
-    col_logo, col_home, col_log, col_help, col_theme, col_menu =         st.columns([4, 1, 1.1, 1, 1.3, 0.8])
+    col_logo, col_home, col_log, col_help, col_theme, col_menu = \
+        st.columns([4, 1, 1.1, 1, 1.3, 0.8])
 
-    # Logo — always visible on all screen sizes
+    # Logo — always visible
     with col_logo:
         st.markdown(f"""
-        <div style="display:flex;align-items:center;gap:10px;padding:2px 0;">
+        <div style="display:flex;align-items:center;gap:10px;padding:4px 0;">
             <div style="width:32px;height:32px;background:{T['accent']};
                  border-radius:6px;display:flex;align-items:center;
                  justify-content:center;flex-shrink:0;">
@@ -1875,51 +1858,48 @@ def navbar():
             </div>
         </div>""", unsafe_allow_html=True)
 
-    # Desktop buttons — hidden on mobile via CSS
+    # Desktop nav buttons — each wrapped in .dt-nav-btn for CSS targeting
     with col_home:
-        st.markdown('<div class="dt-desktop-nav">', unsafe_allow_html=True)
+        st.markdown('<div class="dt-desktop-nav dt-nav-btn">', unsafe_allow_html=True)
         if st.button("Home", key="nav_home"):
             st.session_state.page = "welcome"
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col_log:
-        st.markdown('<div class="dt-desktop-nav">', unsafe_allow_html=True)
+        st.markdown('<div class="dt-desktop-nav dt-nav-btn">', unsafe_allow_html=True)
         if st.button("My scans", key="nav_log"):
             st.session_state.page = "log"
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col_help:
-        st.markdown('<div class="dt-desktop-nav">', unsafe_allow_html=True)
+        st.markdown('<div class="dt-desktop-nav dt-nav-btn">', unsafe_allow_html=True)
         if st.button("Help", key="nav_help"):
             st.session_state.page = "help"
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col_theme:
-        st.markdown('<div class="dt-desktop-nav">', unsafe_allow_html=True)
+        st.markdown('<div class="dt-desktop-nav dt-nav-btn">', unsafe_allow_html=True)
         if st.button(T["toggle_lbl"], key="tm"):
             st.session_state.dark_mode = not st.session_state.dark_mode
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # Inject late button fix on every render
-    inject_button_fix()
-
-    # Mobile popover menu — shown only on small screens via CSS
-    # st.popover does NOT rerun on render — only on interaction inside it
+    # Mobile popover — only visible on small screens via CSS
     with col_menu:
-        st.markdown('<div class="dt-mobile-nav">', unsafe_allow_html=True)
-        with st.popover("Menu", use_container_width=True):
-            st.markdown(f"**Navigate**")
-            if st.button("Home", key="mob_home", use_container_width=True):
+        st.markdown('<div class="dt-mobile-nav dt-nav-btn">', unsafe_allow_html=True)
+        with st.popover("Menu ▾", use_container_width=True):
+            st.markdown(f"<b style='color:{T['txt']}'>Navigate</b>",
+                        unsafe_allow_html=True)
+            if st.button("🏠 Home", key="mob_home", use_container_width=True):
                 st.session_state.page = "welcome"
                 st.rerun()
-            if st.button("My scans", key="mob_scans", use_container_width=True):
+            if st.button("📋 My scans", key="mob_scans", use_container_width=True):
                 st.session_state.page = "log"
                 st.rerun()
-            if st.button("Help", key="mob_help", use_container_width=True):
+            if st.button("❓ Help", key="mob_help", use_container_width=True):
                 st.session_state.page = "help"
                 st.rerun()
             st.divider()
@@ -1928,15 +1908,17 @@ def navbar():
                 st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
+    st.markdown('</div>', unsafe_allow_html=True)  # close dt-navbar-wrap
 
+    # Inject late fix for primary CTA buttons
+    inject_button_fix()
 
-    # Session identity strip — shown only when session is active
+    # ── Session identity strip ────────────────────────────────────────
     if sess:
         scan_txt = f"{scans} scan{'s' if scans != 1 else ''}"
         st.markdown(f"""
         <div class="dt-session-wrap">
-            <div style="display:flex;align-items:center;gap:8px;">
-                <!-- User icon -->
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                 <div style="width:22px;height:22px;background:{T['bar_ok']};
                      border-radius:50%;display:flex;align-items:center;
                      justify-content:center;flex-shrink:0;">
@@ -2014,60 +1996,23 @@ def mklog(k, v, s=""):
 
 def inject_button_fix():
     """
-    Late CSS injection — runs after Streamlit loads its own styles.
-    Uses btn_bg (not accent) so dark mode buttons are dark navy,
-    not the lighter accent blue used for text/links.
+    Late-injected CSS — runs after Streamlit renders its own styles.
+    Only job: ensure primary action button text stays white.
+    Nav button styling is handled by .dt-nav-btn wrapper class.
     """
     st.markdown(f"""<style>
-/* Primary action buttons — btn_bg background, white text */
-.stButton > button {{
-    color: #FFFFFF !important;
-    background-color: {T['btn_bg']} !important;
-    border: none !important;
-}}
-.stButton > button p,
-.stButton > button span,
-.stButton > button div {{
-    color: #FFFFFF !important;
-}}
-/* Download button */
-.stDownloadButton > button,
-.stDownloadButton > button p,
-.stDownloadButton > button span,
-.stDownloadButton > button div {{
-    color: #FFFFFF !important;
-    background-color: {T['btn_bg']} !important;
-    border: none !important;
-}}
-/* Nav buttons — transparent with visible text */
-div[data-testid="stVerticalBlock"] > div:first-child
-div[data-testid="stHorizontalBlock"] .stButton > button {{
-    color: {T['txt']} !important;
-    background: transparent !important;
-    border: 1px solid {T['border']} !important;
-    font-size: 12px !important;
-    padding: 5px 10px !important;
-}}
-div[data-testid="stVerticalBlock"] > div:first-child
-div[data-testid="stHorizontalBlock"] .stButton > button p,
-div[data-testid="stVerticalBlock"] > div:first-child
-div[data-testid="stHorizontalBlock"] .stButton > button span,
-div[data-testid="stVerticalBlock"] > div:first-child
-div[data-testid="stHorizontalBlock"] .stButton > button div {{
-    color: {T['txt']} !important;
-}}
-/* Popover Menu button — always visible in both modes */
-div[data-testid="stPopover"] > div > .stButton > button {{
-    color: {T['txt']} !important;
-    background: {T['bg_sec']} !important;
-    border: 1px solid {T['border']} !important;
-}}
-div[data-testid="stPopover"] > div > .stButton > button p,
-div[data-testid="stPopover"] > div > .stButton > button span,
-div[data-testid="stPopover"] > div > .stButton > button div {{
-    color: {T['txt']} !important;
-}}
-</style>""", unsafe_allow_html=True)
+    /* Primary CTA buttons always white text on accent */
+    .stButton > button[data-testid="baseButton-primary"] {{
+        background-color: {T['accent']} !important;
+        color: #FFFFFF !important;
+        border: none !important;
+        font-weight: 600 !important;
+    }}
+    .stButton > button[data-testid="baseButton-primary"] p,
+    .stButton > button[data-testid="baseButton-primary"] span {{
+        color: #FFFFFF !important;
+    }}
+    </style>""", unsafe_allow_html=True)
 
 
 def page_welcome():
@@ -2320,8 +2265,8 @@ def page_welcome():
 
 
 
-# HELP PAGE — page_help()
-# Shown when user clicks Help in the navbar.
+# ACTIVITY LOG PAGE — page_log()
+# Shown when user clicks My scans in the navbar.
 def page_log():
     """
     My scans page — pure Streamlit widgets for full dark/light mode support.
@@ -2402,9 +2347,11 @@ def page_help():
     """Help page — pure Streamlit widgets, no HTML rendering issues."""
     navbar()
 
-    st.markdown(f"<h3 style='color:{T["txt"]};'>DEEPTRUST — Help Guide</h3>",
+    txt_col  = T['txt']
+    txt2_col = T['txt2']
+    st.markdown(f"<h3 style='color:{txt_col};'>DEEPTRUST — Help Guide</h3>",
                 unsafe_allow_html=True)
-    st.markdown(f"<p style='color:{T["txt2"]};font-size:13px;'>Everything you need to know about using this system.</p>",
+    st.markdown(f"<p style='color:{txt2_col};font-size:13px;'>Everything you need to know about using this system.</p>",
                 unsafe_allow_html=True)
     st.divider()
 
@@ -2677,17 +2624,13 @@ def page_input():
                             "Analyse — is this a deepfake?",
                             type="primary",
                             use_container_width=True)
-                        # Spinner placeholder — fills in below button on click
-                        spinner_slot = st.empty()
 
                     st.markdown("<div style='margin-bottom:8px'></div>",
                                 unsafe_allow_html=True)
 
                     if scan_pressed:
                         t0 = time.time()
-                        with spinner_slot:
-                            st.spinner("Running CNN, Autoencoder, Meta-learner...")
-                        with st.spinner("Analysing image — CNN, Autoencoder, Meta-learner..."):
+                        with st.spinner("Analysing image — CNN · Autoencoder · Meta-learner..."):
                             res = run_inference(
                                 Image.open(io.BytesIO(raw)), "Standard")
 
@@ -2722,7 +2665,7 @@ def page_input():
                         st.session_state.results = res
 
                         # Add to scan history for activity log
-                        if not st.session_state.get("scan_history"):
+                        if not isinstance(st.session_state.scan_history, list):
                             st.session_state.scan_history = []
                         st.session_state.scan_history.append({
                             "time":     datetime.now().strftime("%H:%M:%S"),
@@ -2822,14 +2765,11 @@ def page_output():
                 <div class="m-src">TBL_RESULTS.AE_Error</div>
             </div>""", unsafe_allow_html=True)
 
-        # Three ensemble confidence bars
+        # Two ensemble confidence bars
         conf_col = T["bar_fake"] if is_fake else T["bar_ok"]
         st.markdown("<br>" +
             mkbar("Manipulation confidence",
                   r["confidence"], conf_col) +
-            mkbar("Human face probability",
-                  r.get("face_confidence", 98.0), 
-                  T["bar_ok"]) +
             mkbar("Fusion agreement",
                   min(r["confidence"] - 2, 100),
                   T["bar_info"]),
@@ -2942,13 +2882,13 @@ def page_output():
         log += mklog("CNN_Gate",
             "CNN < 20% — strong REAL signal, AE override blocked",
             ok)
-    elif ov == 0:
+    elif ov == "0b":
         log += mklog("AE_Override",
             "Tier 0b — strong CNN REAL and low quality image", ok)
-    elif ov == 1:
+    elif ov == "1":
         log += mklog("AE_Override",
             "Tier 1 — borderline CNN overridden by clean AE error", ok)
-    elif ov == 2:
+    elif ov == "2":
         log += mklog("AE_Override",
             "Tier 2 — quality uncertainty flagged, confidence reduced", bad)
     elif ov == "U":
@@ -2988,7 +2928,7 @@ def page_output():
     # Verdict plain-English explanation 
     verdict_explain = {
         "FAKE": (
-            f"<b style=\"color:\" >FAKE — What this means:</b>  DEEPTRUST detected signs of digital manipulation "
+            f"<b style='color:{T['bar_fake']}'>FAKE — What this means:</b> DEEPTRUST detected signs of digital manipulation "
             f"at {r['confidence']}% confidence. This could be a face-swap, GAN-generated "
             f"face, or other AI-synthesised content. This is forensic evidence only — "
             f"always seek expert human review before drawing formal conclusions."

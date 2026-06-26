@@ -1,6 +1,6 @@
 """
-DEEPTRUST: A Web-Based AI Platform for Image Deepfake Detection Using Ensemble 
-Convolutional Neural Networks and Autoencoder-Based Anomaly Analysis for Improved 
+DEEPTRUST: A Web-Based AI Platform for Image Deepfake Detection Using Ensemble
+Convolutional Neural Networks and Autoencoder-Based Anomaly Analysis for Improved
 Generalizability, Efficiency, and Interpretability
 
 Final Year IT Project — Technical University of Kenya
@@ -11,18 +11,18 @@ STUDENT REG. NUMBER: (SCCJ/01514/2022)
 
 # SECTION 1: IMPORTS
 # These are external libraries and tools the app needs to function.
-import streamlit as st          # The web framework that powers the entire UI
-import numpy as np              # Numerical computing — used for array maths on image pixels
-import cv2                      # OpenCV — image processing (resizing, colour conversion, face detection)
-import hashlib                  # Generates SHA-256 hash fingerprint of uploaded images for integrity verification
-import os                       # File system operations — checking if model files exist, creating folders
-import time                     # Measures how long each scan takes (process time in forensic log)
-import uuid                     # Generates unique IDs for each upload and result (e.g. UP-20260529-xxxx)
-import sqlite3                  # Lightweight database — stores scan results in memory during the session
-import io                       # Handles image data as bytes in memory without saving to disk
-import requests                 # Makes HTTP calls to external AI APIs (Anthropic, Ollama)
-from datetime import datetime   # Captures the exact timestamp when a scan is performed
-from PIL import Image           # Python Imaging Library — opens, resizes, and converts uploaded images
+import streamlit as st # The web framework that powers the entire UI
+import numpy as np # Numerical computing — used for array maths on image pixels
+import cv2 # OpenCV — image processing (resizing, colour conversion, face detection)
+import hashlib # Generates SHA-256 hash fingerprint of uploaded images for integrity verification
+import os # File system operations — checking if model files exist, creating folders
+import time # Measures how long each scan takes (process time in forensic log)
+import uuid # Generates unique IDs for each upload and result (e.g. UP-20260529-xxxx)
+import sqlite3 # Lightweight database — stores scan results in memory during the session
+import io # Handles image data as bytes in memory without saving to disk
+import requests # Makes HTTP calls to external AI APIs (Anthropic, Ollama)
+from datetime import datetime # Captures the exact timestamp when a scan is performed
+from PIL import Image # Python Imaging Library — opens, resizes, and converts uploaded images
 
 
 
@@ -31,10 +31,10 @@ from PIL import Image           # Python Imaging Library — opens, resizes, and
 # code. Instead they are stored in a .env file on the developer's machine.
 # This block safely loads that file if it exists. If not, the app still works.
 try:
-    from dotenv import load_dotenv  # python-dotenv reads key=value pairs from .env
-    load_dotenv()                   # Loads variables into os.environ so they can be read later
+    from dotenv import load_dotenv # python-dotenv reads key=value pairs from .env
+    load_dotenv() # Loads variables into os.environ so they can be read later
 except ImportError:
-    pass  
+    pass
 
 
 
@@ -44,10 +44,10 @@ except ImportError:
 # layout="wide" makes the app use the full browser width — better for results.
 # initial_sidebar_state="collapsed" hides the sidebar on load for a clean UI.
 st.set_page_config(
-    page_title="DEEPTRUST",       # Text shown in the browser tab
-    page_icon="🔍",               # Favicon icon for browser tab
-    layout="wide",                # Use full screen width
-    initial_sidebar_state="collapsed"  # Hide the sidebar by default
+    page_title="DEEPTRUST",
+    page_icon=None,
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 
@@ -58,19 +58,19 @@ st.set_page_config(
 
 
 for k, v in dict(
-    page           = "welcome",  # Start on welcome page — new HCI landing page
-    dark_mode      = False,      # Light mode by default — user can toggle
-    session_id     = None,       # Unique ID for this browser session (set on first load)
-    consent_given  = False,      # Privacy consent must be given before scanning (Kenya DPA 2019)
-    results        = None,       # Stores the full scan result dict after inference runs
-    upload_id      = None,       # Unique ID for the current uploaded image
-    scan_count     = 0,          # Tracks how many scans done this session
-    db_conn        = None,       # SQLite connection — in-memory, wiped on session end
-    session_start  = None,       # Timestamp when session began — shown in profile badge
-    scan_history   = [],         # List of past scan summaries for activity log
-    show_help      = False,      # Legacy — kept for compatibility
-    page_before_log = None,     # Remember which page to return to from log
-    confirm_new    = False,      # Confirmation state before purging session
+    page = "welcome", # Start on welcome page — new HCI landing page
+    dark_mode = False, # Light mode by default — user can toggle
+    session_id = None, # Unique ID for this browser session (set on first load)
+    consent_given = False, # Privacy consent must be given before scanning (Kenya DPA 2019)
+    results = None, # Stores the full scan result dict after inference runs
+    upload_id = None, # Unique ID for the current uploaded image
+    scan_count = 0, # Tracks how many scans done this session
+    db_conn = None, # SQLite connection — in-memory, wiped on session end
+    session_start = None, # Timestamp when session began — shown in profile badge
+    scan_history = [], # List of past scan summaries for activity log
+    show_help = False, # Legacy — kept for compatibility
+    page_before_log = None, # Remember which page to return to from log
+    confirm_new = False, # Confirmation state before purging session
 ).items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -81,123 +81,123 @@ for k, v in dict(
 # DEEPTRUST supports two visual themes — light (default) and dark.
 # Each theme is a Python dictionary mapping design token names to hex colours.
 # This approach means every UI component references a token like T["txt"]
-# instead of a hardcoded colour, so switching themes changes the entire  appearance with one variable swap at the bottom of this section.
+# instead of a hardcoded colour, so switching themes changes the entire appearance with one variable swap at the bottom of this section.
 
 # Colour categories:
-#   bg_*     — background colours for page, cards, inputs
-#   border*  — border/divider line colours
-#   txt*     — text colours (primary and secondary)
-#   accent*  — brand blue used for buttons, links, highlights
-#   fake_*   — red palette for FAKE verdict display
-#   real_*   — green palette for REAL verdict display
-#   bar_*    — colours for metric progress bars
-#   log_*    — colours for forensic log entries (good/bad)
+# bg_* — background colours for page, cards, inputs
+# border* — border/divider line colours
+# txt* — text colours (primary and secondary)
+# accent* — brand blue used for buttons, links, highlights
+# fake_* — red palette for FAKE verdict display
+# real_* — green palette for REAL verdict display
+# bar_* — colours for metric progress bars
+# log_* — colours for forensic log entries (good/bad)
 
 
 LIGHT = dict(
-    # Page and card backgrounds 
-    bg_page      = "#F5F3EE",   # Warm off-white page background
-    bg_card      = "#FFFFFF",   # Pure white for metric cards
-    bg_sec       = "#EEEADE",   # Slightly darker for secondary areas
-    bg_input     = "#F9F8F4",   # Very light for input fields
-    border       = "#D4D0C4",   # Soft grey borders
-    border2      = "#B8B4A4",   # Slightly darker border for emphasis
-    #  Text colours 
-    txt          = "#1A1916",   # Near-black for primary text
-    txt2         = "#4A4840",   # Medium grey for secondary text
-    muted        = "#8A8778",   # Light grey for captions and labels
+    # Page and card backgrounds
+    bg_page = "#F5F3EE", # Warm off-white page background
+    bg_card = "#FFFFFF", # Pure white for metric cards
+    bg_sec = "#EEEADE", # Slightly darker for secondary areas
+    bg_input = "#F9F8F4", # Very light for input fields
+    border = "#D4D0C4", # Soft grey borders
+    border2 = "#B8B4A4", # Slightly darker border for emphasis
+    # Text colours
+    txt = "#1A1916", # Near-black for primary text
+    txt2 = "#4A4840", # Medium grey for secondary text
+    muted = "#8A8778", # Light grey for captions and labels
     # Brand accent (DEEPTRUST blue)
-    accent       = "#1B3A5C",   # Deep navy blue — primary brand colour
-    accent2      = "#2B5A8C",   # Slightly lighter blue for hover states
-    accent_light = "#E8EFF7",   # Very light blue tint for backgrounds
-    btn_bg       = "#1B3A5C",   # Button background — dark navy in light mode
-    btn_txt      = "#FFFFFF",   # Button text — always white
-    nav          = "#EEEADE",   # Navigation bar background
-    code_bg      = "#E4E0D4",   # Background for code/monospace blocks
-    toggle_lbl   = "Dark mode", # Label shown on the theme toggle button
-    # FAKE verdict colour palette (reds) 
-    fake_bg      = "#FBF0F0",   # Light red background for FAKE banner
-    fake_br      = "#D49090",   # Red border around FAKE banner
-    fake_txt     = "#6B1A1A",   # Dark red text for FAKE title
-    fake_sub     = "#8B3030",   # Medium red for FAKE subtitle
-    fake_conf_bg = "#F0D0D0",   # Red tint for confidence badge background
-    fake_conf_txt= "#6B1A1A",   # Dark red text on confidence badge
-    #  REAL verdict colour palette (greens) 
-    real_bg      = "#EFF5E8",   # Light green background for REAL banner
-    real_br      = "#90B870",   # Green border around REAL banner
-    real_txt     = "#1E4A0A",   # Dark green text for REAL title
-    real_sub     = "#2E6A14",   # Medium green for REAL subtitle
-    real_conf_bg = "#D0E8B8",   # Green tint for confidence badge background
-    real_conf_txt= "#1E4A0A",   # Dark green text on confidence badge
+    accent = "#1B3A5C", # Deep navy blue — primary brand colour
+    accent2 = "#2B5A8C", # Slightly lighter blue for hover states
+    accent_light = "#E8EFF7", # Very light blue tint for backgrounds
+    btn_bg = "#1B3A5C", # Button background — dark navy in light mode
+    btn_txt = "#FFFFFF", # Button text — always white
+    nav = "#EEEADE", # Navigation bar background
+    code_bg = "#E4E0D4", # Background for code/monospace blocks
+    toggle_lbl = "Dark mode", # Label shown on the theme toggle button
+    # FAKE verdict colour palette (reds)
+    fake_bg = "#FBF0F0", # Light red background for FAKE banner
+    fake_br = "#D49090", # Red border around FAKE banner
+    fake_txt = "#6B1A1A", # Dark red text for FAKE title
+    fake_sub = "#8B3030", # Medium red for FAKE subtitle
+    fake_conf_bg = "#F0D0D0", # Red tint for confidence badge background
+    fake_conf_txt= "#6B1A1A", # Dark red text on confidence badge
+    # REAL verdict colour palette (greens)
+    real_bg = "#EFF5E8", # Light green background for REAL banner
+    real_br = "#90B870", # Green border around REAL banner
+    real_txt = "#1E4A0A", # Dark green text for REAL title
+    real_sub = "#2E6A14", # Medium green for REAL subtitle
+    real_conf_bg = "#D0E8B8", # Green tint for confidence badge background
+    real_conf_txt= "#1E4A0A", # Dark green text on confidence badge
     # Metric bar and value colours
-    bar_fake     = "#C04040",   # Red bar — high anomaly / fake signal
-    bar_ok       = "#3A7A18",   # Green bar — normal / authentic signal
-    bar_info     = "#1B5A8C",   # Blue bar — neutral informational metric
-    val_fake     = "#C04040",   # Red number value — fake/bad metric
-    val_ok       = "#3A7A18",   # Green number value — real/good metric
+    bar_fake = "#C04040", # Red bar — high anomaly / fake signal
+    bar_ok = "#3A7A18", # Green bar — normal / authentic signal
+    bar_info = "#1B5A8C", # Blue bar — neutral informational metric
+    val_fake = "#C04040", # Red number value — fake/bad metric
+    val_ok = "#3A7A18", # Green number value — real/good metric
     # Forensic log entry colours
-    log_bad      = "color:#B03030",  # Red text for flagged log entries
-    log_ok       = "color:#2A6A10",  # Green text for normal log entries
-    log_warn     = "color:#8A5200;font-weight:600",  # Amber — borderline
+    log_bad = "color:#B03030", # Red text for flagged log entries
+    log_ok = "color:#2A6A10", # Green text for normal log entries
+    log_warn = "color:#8A5200;font-weight:600", # Amber — borderline
     # UNCERTAIN verdict palette — light mode purple
-    unc_bg       = "#F0EEF8",
-    unc_br       = "#9B8FCC",
-    unc_txt      = "#4A3D88",
-    unc_sub      = "#6A5DAA",
-    unc_conf_bg  = "#E8E0F8",
+    unc_bg = "#F0EEF8",
+    unc_br = "#9B8FCC",
+    unc_txt = "#4A3D88",
+    unc_sub = "#6A5DAA",
+    unc_conf_bg = "#E8E0F8",
     unc_conf_txt = "#3A2D7A",
 )
 
 DARK = dict(
     # Dark mode equivalents of all LIGHT tokens above
     # Same structure, adjusted for dark backgrounds
-    bg_page      = "#0C1824",
-    bg_card      = "#112233",
-    bg_sec       = "#0E1D2C",
-    bg_input     = "#0A1520",
-    border       = "#1E3448",
-    border2      = "#2A4A68",
-    txt          = "#DCE8F0",
-    txt2         = "#90AABF",
-    muted        = "#506070",
-    accent       = "#4A9EDB",   # Text/link accent in dark mode
-    accent2      = "#6AB4EF",
+    bg_page = "#0C1824",
+    bg_card = "#112233",
+    bg_sec = "#0E1D2C",
+    bg_input = "#0A1520",
+    border = "#1E3448",
+    border2 = "#2A4A68",
+    txt = "#DCE8F0",
+    txt2 = "#90AABF",
+    muted = "#506070",
+    accent = "#4A9EDB", # Text/link accent in dark mode
+    accent2 = "#6AB4EF",
     accent_light = "#0D2030",
-    btn_bg       = "#1E4E82",   # Button background — darker blue for dark mode
-    btn_txt      = "#FFFFFF",   # Button text — always white
-    nav          = "#091420",
-    code_bg      = "#081018",
-    toggle_lbl   = "Light mode",  # When dark mode is on, button says "Light mode"
-    fake_bg      = "#200C0C",
-    fake_br      = "#5A2020",
-    fake_txt     = "#FFAAAA",
-    fake_sub     = "#CC7070",
+    btn_bg = "#1E4E82", # Button background — darker blue for dark mode
+    btn_txt = "#FFFFFF", # Button text — always white
+    nav = "#091420",
+    code_bg = "#081018",
+    toggle_lbl = "Light mode", # When dark mode is on, button says "Light mode"
+    fake_bg = "#200C0C",
+    fake_br = "#5A2020",
+    fake_txt = "#FFAAAA",
+    fake_sub = "#CC7070",
     fake_conf_bg = "#3A1010",
     fake_conf_txt= "#FFAAAA",
-    real_bg      = "#0C1E0C",
-    real_br      = "#205A20",
-    real_txt     = "#90EE90",
-    real_sub     = "#60BB60",
+    real_bg = "#0C1E0C",
+    real_br = "#205A20",
+    real_txt = "#90EE90",
+    real_sub = "#60BB60",
     real_conf_bg = "#102A10",
     real_conf_txt= "#90EE90",
     # UNCERTAIN verdict palette — dark mode purple
-    unc_bg       = "#130E22",
-    unc_br       = "#4A3A88",
-    unc_txt      = "#C0A8FF",
-    unc_sub      = "#9A82DD",
-    unc_conf_bg  = "#1E1535",
+    unc_bg = "#130E22",
+    unc_br = "#4A3A88",
+    unc_txt = "#C0A8FF",
+    unc_sub = "#9A82DD",
+    unc_conf_bg = "#1E1535",
     unc_conf_txt = "#C0A8FF",
-    bar_fake     = "#E06060",
-    bar_ok       = "#60BB60",
-    bar_info     = "#4A9EDB",
-    val_fake     = "#EE8080",
-    val_ok       = "#80DD80",
-    log_bad      = "color:#EE8080",
-    log_ok       = "color:#80DD80",
-    log_warn     = "color:#DDAA40;font-weight:600",  # Amber — borderline
+    bar_fake = "#E06060",
+    bar_ok = "#60BB60",
+    bar_info = "#4A9EDB",
+    val_fake = "#EE8080",
+    val_ok = "#80DD80",
+    log_bad = "color:#EE8080",
+    log_ok = "color:#80DD80",
+    log_warn = "color:#DDAA40;font-weight:600", # Amber — borderline
 )
 
-# Active theme selection 
+# Active theme selection
 # T is the active theme dictionary used throughout the rest of the app.
 # Every colour reference in the UI is T["token_name"] not a hardcoded hex.
 # Switching dark_mode in session state and rerunning swaps all colours at once.
@@ -216,18 +216,18 @@ T = DARK if st.session_state.dark_mode else LIGHT
 # into the CSS so colours change automatically when the theme switches.
 #
 # CSS class naming convention used throughout:
-#   .topbar / .navbar — top navigation bar
-#   .step / .steps    — progress indicator (Consent → Upload → Results)
-#   .card             — white/dark box containing a section of content
-#   .verdict          — the large FAKE/REAL/UNCERTAIN result banner
-#   .metric           — individual score display boxes (CNN%, AE error)
-#   .bar              — horizontal progress bar for anomaly scores
-#   .log / .lr / .lk  — forensic log table rows and key/value cells
-#   .ai-box           — styled box for the AI forensic summary text
+# .topbar / .navbar — top navigation bar
+# .step / .steps — progress indicator (Consent → Upload → Results)
+# .card — white/dark box containing a section of content
+# .verdict — the large FAKE/REAL/UNCERTAIN result banner
+# .metric — individual score display boxes (CNN%, AE error)
+# .bar — horizontal progress bar for anomaly scores
+# .log / .lr / .lk — forensic log table rows and key/value cells
+# .ai-box — styled box for the AI forensic summary text
 
 st.markdown(f"""<style>
 
-/* Google Fonts 
+/* Google Fonts
    Load the Inter typeface from Google's font CDN.
    Inter is a clean, professional sans-serif designed for screen readability.
    Fix: URL must point to fonts.googleapis.com with the correct query string. */
@@ -272,7 +272,59 @@ div[data-testid="stMarkdownContainer"] a {{
 /* Streamlit container overrides */
 [data-testid="stAppViewContainer"] {{ background: {T['bg_page']} !important; }}
 [data-testid="stHeader"], [data-testid="stToolbar"] {{ background: transparent !important; }}
-#MainMenu, footer, header {{ visibility: hidden; }}
+#MainMenu, footer {{ visibility: hidden; }}
+
+/* ── Sidebar toggle: style the native >> button as a hamburger ───────
+   Positioned inside the topbar (top:6px left:1.5rem).
+   The button IS Streamlit's native toggle so clicking always works.
+   We just make it look like a proper nav button instead of ">>" */
+[data-testid="stSidebarCollapsedControl"] {{
+    position: fixed !important;
+    top: 6px !important;
+    left: 1.2rem !important;
+    z-index: 9999 !important;
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    background: {T['btn_bg']} !important;
+    border-radius: 6px !important;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.25) !important;
+    padding: 2px !important;
+    width: 38px !important;
+    height: 38px !important;
+    align-items: center !important;
+    justify-content: center !important;
+}}
+/* Hide the >> arrow SVG — show hamburger lines instead */
+[data-testid="stSidebarCollapsedControl"] button {{
+    background: transparent !important;
+    border: none !important;
+    width: 34px !important;
+    height: 34px !important;
+    padding: 0 !important;
+    cursor: pointer !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    position: relative !important;
+}}
+[data-testid="stSidebarCollapsedControl"] button svg {{
+    display: none !important;
+}}
+/* Draw hamburger lines using pseudo-elements on the button */
+[data-testid="stSidebarCollapsedControl"] button::before {{
+    content: "" !important;
+    display: block !important;
+    width: 18px !important;
+    height: 2px !important;
+    background: #ffffff !important;
+    box-shadow: 0 6px 0 #ffffff, 0 -6px 0 #ffffff !important;
+    border-radius: 2px !important;
+}}
+/* Sidebar edge collapse button — keep visible */
+section[data-testid="stSidebar"] > div:first-child > div > div {{
+    visibility: visible !important;
+}}
 
 /* Block container width */
 .block-container {{
@@ -295,7 +347,7 @@ div[data-testid="stMarkdownContainer"] a {{
    Streamlit default grey overridden with DEEPTRUST brand colours.
    Nav buttons use .dt-nav-btn wrapper class (see navbar function). */
 
-/*  File upload area 
+/* File upload area
    Style the drag-and-drop file upload box with a dashed border to signal
    it is a drop zone. The label text is made smaller and muted. */
 div[data-testid="stFileUploader"] {{
@@ -324,7 +376,7 @@ div[data-testid="stFileUploader"] span {{
 .stCheckbox > label p {{ color: {T['txt']} !important; }}
 .stCheckbox span[data-testid="stMarkdownContainer"] p {{ color: {T['txt']} !important; }}
 [data-testid="stCheckbox"] label {{ color: {T['txt']} !important; }}
-[data-testid="stCheckbox"] span  {{ color: {T['txt']} !important; }}
+[data-testid="stCheckbox"] span {{ color: {T['txt']} !important; }}
 
 /* Alert and spinner
    Style st.warning() / st.error() alert boxes and the loading spinner. */
@@ -343,7 +395,7 @@ div[data-testid="stFileUploader"] span {{
     margin: 0 auto 16px;
 }}
 
-/* Top navigation bar 
+/* Top navigation bar
    Fixed strip at the top showing the DEEPTRUST logo, session info pill,
    and dark mode toggle. Uses flexbox for horizontal alignment.
    Negative margins extend it to the full browser width. */
@@ -354,7 +406,7 @@ div[data-testid="stFileUploader"] span {{
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin: -1rem -1rem 1.5rem -1rem;  /* bleed to full width */
+    margin: -1rem -1rem 1.5rem -1rem; /* bleed to full width */
     flex-wrap: wrap;
     gap: 8px;
 }}
@@ -367,7 +419,7 @@ div[data-testid="stFileUploader"] span {{
     display: flex; align-items: center; justify-content: center;
 }}
 .logo-name {{ font-size: 15px; font-weight: 600; color: {T['txt']}; }}
-.logo-sub  {{ font-size: 11px; color: {T['muted']}; }}
+.logo-sub {{ font-size: 11px; color: {T['muted']}; }}
 
 /* Right side of navbar — session pill and toggle button */
 .nav-right {{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }}
@@ -375,7 +427,7 @@ div[data-testid="stFileUploader"] span {{
 /* Pill badge — shows session ID, scan count, or status in monospace font */
 .pill {{
     font-size: 11px;
-    font-family: 'JetBrains Mono', monospace;  /* monospace for IDs */
+    font-family: 'JetBrains Mono', monospace; /* monospace for IDs */
     background: {T['bg_sec']};
     border: 1px solid {T['border']};
     border-radius: 4px;
@@ -389,17 +441,17 @@ div[data-testid="stFileUploader"] span {{
     color: {T['real_txt']};
 }}
 
-/*  Progress steps indicator 
-   Shows the 3-step workflow: (1) Consent -  (2) Upload -  (3) Results
+/* Progress steps indicator
+   Shows the 3-step workflow: (1) Consent - (2) Upload - (3) Results
    Each step has a numbered circle and label.
    Active step is blue, completed steps are green, future steps are grey. */
 .steps {{ display: flex; align-items: center; margin-bottom: 20px; }}
-.step  {{ display: flex; align-items: center; gap: 7px; font-size: 12px; color: {T['muted']}; }}
-.step.on   {{ color: {T['accent2']}; font-weight: 600; }}   /* current step */
-.step.done {{ color: {T['bar_ok']}; }}                       /* completed step */
+.step {{ display: flex; align-items: center; gap: 7px; font-size: 12px; color: {T['muted']}; }}
+.step.on {{ color: {T['accent2']}; font-weight: 600; }} /* current step */
+.step.done {{ color: {T['bar_ok']}; }} /* completed step */
 .step-n {{
     width: 22px; height: 22px;
-    border-radius: 50%;               /* circular step number */
+    border-radius: 50%; /* circular step number */
     display: flex; align-items: center; justify-content: center;
     font-size: 11px; font-weight: 600;
     border: 1.5px solid {T['border']};
@@ -407,11 +459,11 @@ div[data-testid="stFileUploader"] span {{
     background: {T['bg_sec']};
     flex-shrink: 0;
 }}
-.step.on   .step-n {{ background: {T['accent']};  border-color: {T['accent']};  color: #fff; }}
+.step.on .step-n {{ background: {T['accent']}; border-color: {T['accent']}; color: #fff; }}
 .step.done .step-n {{ background: {T['bar_ok']}; border-color: {T['bar_ok']}; color: #fff; }}
 .step-line {{ width: 30px; height: 1px; background: {T['border']}; margin: 0 4px; }}
 
-/* Content cards 
+/* Content cards
    White/dark boxes that group related content with a border and padding.
    Used for metric sections, the forensic log, and the AI summary. */
 .card {{
@@ -437,12 +489,12 @@ div[data-testid="stFileUploader"] span {{
    .v-uncertain — purple theme for UNCERTAIN verdicts (ambiguous cases)
    A thick left border (border-left: 4px) acts as a colour accent stripe. */
 .verdict {{ border-radius: 8px; padding: 16px 20px; margin-bottom: 14px; }}
-.v-fake  {{ background: {T['fake_bg']}; border: 1px solid {T['fake_br']}; border-left: 4px solid {T['bar_fake']}; }}
-.v-real  {{ background: {T['real_bg']}; border: 1px solid {T['real_br']}; border-left: 4px solid {T['bar_ok']}; }}
+.v-fake {{ background: {T['fake_bg']}; border: 1px solid {T['fake_br']}; border-left: 4px solid {T['bar_fake']}; }}
+.v-real {{ background: {T['real_bg']}; border: 1px solid {T['real_br']}; border-left: 4px solid {T['bar_ok']}; }}
 .v-title-fake {{ font-size: 18px; font-weight: 600; color: {T['fake_txt']}; }}
 .v-title-real {{ font-size: 18px; font-weight: 600; color: {T['real_txt']}; }}
-.v-sub-fake   {{ font-size: 12px; color: {T['fake_sub']}; margin-top: 3px; }}
-.v-sub-real   {{ font-size: 12px; color: {T['real_sub']}; margin-top: 3px; }}
+.v-sub-fake {{ font-size: 12px; color: {T['fake_sub']}; margin-top: 3px; }}
+.v-sub-real {{ font-size: 12px; color: {T['real_sub']}; margin-top: 3px; }}
 /* Confidence badge — coloured pill showing the percentage score */
 .conf-fake {{ display:inline-block; font-size:12px; font-weight:500;
     background:{T['fake_conf_bg']}; color:{T['fake_conf_txt']};
@@ -451,7 +503,7 @@ div[data-testid="stFileUploader"] span {{
     background:{T['real_conf_bg']}; color:{T['real_conf_txt']};
     border-radius:4px; padding:3px 10px; margin-top:8px; }}
 
-/*  Score metric boxes 
+/* Score metric boxes
    Small boxes showing CNN%, AE error value, with label and data source.
    .m-val — the large number in the centre
    .m-lbl — the description label below the number
@@ -463,11 +515,11 @@ div[data-testid="stFileUploader"] span {{
 .m-src {{ font-size:10px; font-family:'JetBrains Mono',monospace;
     color:{T['muted']}; margin-top:4px; opacity:.7; }}
 
-/*  Anomaly progress bars 
+/* Anomaly progress bars
    Horizontal bars showing regional anomaly percentages from Grad-CAM.
-   .bar-h    — header row with label on left and value on right
+   .bar-h — header row with label on left and value on right
    .bar-track — the grey background track
-   .bar-fill  — the coloured fill that grows to match the percentage */
+   .bar-fill — the coloured fill that grows to match the percentage */
 .bar {{ margin-bottom:9px; }}
 .bar-h {{ display:flex; justify-content:space-between;
     font-size:12px; margin-bottom:4px; }}
@@ -479,19 +531,19 @@ div[data-testid="stFileUploader"] span {{
 /* Forensic log table
    Monospace table showing the full technical audit trail.
    .log — outer container with code-like background
-   .lr  — each log row (key: value pair)
-   .lk  — key column (fixed width, muted colour)
-   .lv  — value column (breaks long hashes across lines) */
+   .lr — each log row (key: value pair)
+   .lk — key column (fixed width, muted colour)
+   .lv — value column (breaks long hashes across lines) */
 .log {{ background:{T['bg_sec']}; border:1px solid {T['border']};
     border-radius:6px; padding:10px 14px;
     font-family:'JetBrains Mono',monospace; font-size:11.5px; }}
 .lr {{ display:flex; gap:14px; padding:5px 0;
     border-bottom:1px solid {T['border']}; }}
-.lr:last-child {{ border-bottom:none; }}     /* no border on final row */
+.lr:last-child {{ border-bottom:none; }} /* no border on final row */
 .lk {{ color:{T['muted']}; min-width:148px; flex-shrink:0; }}
-.lv {{ color:{T['txt']}; word-break:break-all; }}  /* break long hashes */
+.lv {{ color:{T['txt']}; word-break:break-all; }} /* break long hashes */
 
-/* AI forensic summary box 
+/* AI forensic summary box
    Styled text box displaying the plain-English explanation of the verdict.
    Left blue border visually distinguishes it from the forensic log.
    .ai-lbl — "DEEPTRUST AI Analysis" header label
@@ -499,7 +551,7 @@ div[data-testid="stFileUploader"] span {{
 .ai-box {{
     background:{T['accent_light']};
     border:1px solid {T['border']};
-    border-left:3px solid {T['accent']};   /* blue left accent stripe */
+    border-left:3px solid {T['accent']}; /* blue left accent stripe */
     border-radius:0 6px 6px 0;
     padding:14px 16px;
     font-size:13px; color:{T['txt2']}; line-height:1.75;
@@ -518,16 +570,16 @@ div[data-testid="stFileUploader"] span {{
 }}
 
 /* UNCERTAIN verdict banner — theme-aware purple */
-.v-uncertain  {{ background:{T['unc_bg']}; border:1px solid {T['unc_br']};
+.v-uncertain {{ background:{T['unc_bg']}; border:1px solid {T['unc_br']};
     border-left:4px solid {T['unc_br']}; }}
 .v-title-uncertain {{ font-size:18px; font-weight:500; color:{T['unc_txt']}; }}
-.v-sub-uncertain   {{ font-size:12px; color:{T['unc_sub']}; margin-top:3px; }}
-.conf-uncertain    {{ display:inline-block; font-size:12px; font-weight:500;
+.v-sub-uncertain {{ font-size:12px; color:{T['unc_sub']}; margin-top:3px; }}
+.conf-uncertain {{ display:inline-block; font-size:12px; font-weight:500;
     background:{T['unc_conf_bg']}; color:{T['unc_conf_txt']};
     border-radius:4px; padding:3px 10px; margin-top:8px; }}
 
-/*  Miscellaneous components 
-   .consent  — grey box showing the privacy consent text before scanning
+/* Miscellaneous components
+   .consent — grey box showing the privacy consent text before scanning
    .pane-lbl — caption label below the original/heatmap image panels
    .disclaimer — small footer text at bottom of output page
    .chip — monospace badge for session/upload/result IDs at top of output
@@ -573,13 +625,12 @@ div[data-testid="stFileUploader"] span {{
 ::-webkit-scrollbar {{ width:6px; }}
 ::-webkit-scrollbar-thumb {{ background:{T['border2']}; border-radius:3px; }}
 
-/* ══ BUTTON COLOURS — definitive block ══════════════════════════════
-   Strategy: ALL .stButton buttons get accent background + white text.
-   Nav buttons get a unique wrapper class .dt-nav-btn and are overridden
-   via that class — no fragile structural selectors needed.
-   Primary CTA buttons keep full accent styling always.            */
+/* BUTTON COLOURS
+   All .stButton buttons → accent background, white text.
+   Sidebar nav buttons are handled by Streamlit's native sidebar.
+   Primary CTA buttons always get accent + white via inject_button_fix. */
 
-/* Step 1: All buttons → accent bg, white text */
+/* All buttons: accent background, white text */
 .stButton > button {{
     background-color: {T['accent']} !important;
     color: #FFFFFF !important;
@@ -597,7 +648,7 @@ div[data-testid="stFileUploader"] span {{
     color: #FFFFFF !important;
 }}
 
-/* Step 2: Download buttons → same as primary */
+/* Download buttons */
 .stDownloadButton > button {{
     background-color: {T['accent']} !important;
     color: #FFFFFF !important;
@@ -611,91 +662,45 @@ div[data-testid="stFileUploader"] span {{
     color: #FFFFFF !important;
 }}
 
-/* Step 3: Nav buttons — override via wrapper class .dt-nav-btn
-   Higher specificity than .stButton > button because of the parent class */
-.dt-nav-btn .stButton > button {{
-    background-color: transparent !important;
-    color: {T['txt2']} !important;
-    border: 1px solid {T['border']} !important;
-    font-size: 12px !important;
-    font-weight: 500 !important;
-    padding: 5px 10px !important;
+/* Sidebar styling — theme-aware */
+[data-testid="stSidebar"] {{
+    background: {T['bg_card']} !important;
+    border-right: 1px solid {T['border']} !important;
 }}
-.dt-nav-btn .stButton > button p,
-.dt-nav-btn .stButton > button span,
-.dt-nav-btn .stButton > button div {{
-    color: {T['txt2']} !important;
-}}
-.dt-nav-btn .stButton > button:hover {{
+[data-testid="stSidebar"] .stButton > button {{
     background-color: {T['bg_sec']} !important;
     color: {T['txt']} !important;
+    border: 1px solid {T['border']} !important;
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    text-align: left !important;
+    justify-content: flex-start !important;
 }}
-.dt-nav-btn .stButton > button:hover p,
-.dt-nav-btn .stButton > button:hover span {{
+[data-testid="stSidebar"] .stButton > button p,
+[data-testid="stSidebar"] .stButton > button span,
+[data-testid="stSidebar"] .stButton > button div {{
     color: {T['txt']} !important;
 }}
+[data-testid="stSidebar"] .stButton > button:hover {{
+    background-color: {T['accent_light']} !important;
+    border-color: {T['accent']} !important;
+    color: {T['accent']} !important;
+}}
+[data-testid="stSidebar"] .stButton > button:hover p,
+[data-testid="stSidebar"] .stButton > button:hover span {{
+    color: {T['accent']} !important;
+}}
+/* Sidebar text colours */
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] span,
+[data-testid="stSidebar"] label {{
+    color: {T['txt2']} !important;
+}}
+[data-testid="stSidebarNav"] {{ display: none !important; }}
 
-/* Step 4: Mobile responsive — hide desktop nav, show menu popover */
+/* Mobile padding */
 @media (max-width: 640px) {{
     .block-container {{ padding: 0 0.5rem !important; }}
-    /* Hide the individual nav button columns on mobile */
-    .dt-desktop-nav {{ display: none !important; visibility: hidden !important; height: 0 !important; overflow: hidden !important; }}
-    .dt-mobile-nav  {{ display: block !important; }}
-    .dt-logo-sub    {{ display: none !important; }}
-    /* Prevent Streamlit columns from stacking — keep navbar as a row */
-    .dt-navbar-wrap [data-testid="column"] {{
-        flex: 0 0 auto !important;
-        min-width: 0 !important;
-        padding: 0 2px !important;
-    }}
-}}
-@media (min-width: 641px) {{
-    .dt-desktop-nav {{ display: block !important; }}
-    .dt-mobile-nav  {{ display: none !important; visibility: hidden !important; height: 0 !important; overflow: hidden !important; }}
-}}
-
-/* Step 5: Popover trigger button styling — light and dark aware */
-div[data-testid="stPopover"] > button {{
-    background-color: {T['bg_sec']} !important;
-    color: {T['txt2']} !important;
-    border: 1px solid {T['border']} !important;
-    border-radius: 6px !important;
-    font-size: 12px !important;
-    font-weight: 500 !important;
-    padding: 5px 10px !important;
-    width: 100% !important;
-}}
-div[data-testid="stPopover"] > button p,
-div[data-testid="stPopover"] > button span,
-div[data-testid="stPopover"] > button div {{
-    color: {T['txt2']} !important;
-    background: transparent !important;
-}}
-div[data-testid="stPopover"] > button:hover {{
-    background-color: {T['border']} !important;
-}}
-/* Popover panel background — the dropdown itself */
-div[data-testid="stPopover"] > div[data-testid="stPopoverBody"],
-[data-baseweb="popover"] {{
-    background: {T['bg_card']} !important;
-    border: 1px solid {T['border']} !important;
-    border-radius: 8px !important;
-}}
-/* Text inside the popover panel */
-[data-baseweb="popover"] p,
-[data-baseweb="popover"] span,
-[data-baseweb="popover"] div {{
-    color: {T['txt']} !important;
-}}
-/* Buttons inside the popover panel */
-[data-baseweb="popover"] .stButton > button {{
-    background-color: {T['bg_sec']} !important;
-    color: {T['txt']} !important;
-    border: 1px solid {T['border']} !important;
-}}
-[data-baseweb="popover"] .stButton > button p,
-[data-baseweb="popover"] .stButton > button span {{
-    color: {T['txt']} !important;
 }}
 
 </style>""", unsafe_allow_html=True)
@@ -717,42 +722,42 @@ def get_db():
     """
     if st.session_state.db_conn is None:
         conn = sqlite3.connect(":memory:", check_same_thread=False)
-        conn.execute("PRAGMA foreign_keys = ON")   # enable cascade deletes
-        conn.row_factory = sqlite3.Row   # allows result["column_name"] access
+        conn.execute("PRAGMA foreign_keys = ON") # enable cascade deletes
+        conn.row_factory = sqlite3.Row # allows result["column_name"] access
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS TBL_SESSIONS (
                 Session_ID TEXT PRIMARY KEY,
-                IP_Hash    TEXT NOT NULL,        -- hashed for privacy, never raw IP
+                IP_Hash TEXT NOT NULL, -- hashed for privacy, never raw IP
                 User_Agent TEXT,
                 Start_Time TEXT DEFAULT (datetime('now'))
             );
             CREATE TABLE IF NOT EXISTS TBL_UPLOADS (
-                Upload_ID  TEXT PRIMARY KEY,
+                Upload_ID TEXT PRIMARY KEY,
                 Session_ID TEXT,
-                File_Name  TEXT NOT NULL,
-                File_Size  REAL,
-                File_Hash  TEXT,                 -- SHA-256 fingerprint of the image
+                File_Name TEXT NOT NULL,
+                File_Size REAL,
+                File_Hash TEXT, -- SHA-256 fingerprint of the image
                 Upload_Time TEXT DEFAULT (datetime('now')),
                 FOREIGN KEY (Session_ID) REFERENCES TBL_SESSIONS(Session_ID)
                     ON DELETE CASCADE
             );
             CREATE TABLE IF NOT EXISTS TBL_RESULTS (
-                Result_ID    TEXT PRIMARY KEY,
-                Upload_ID    TEXT,
-                CNN_Score    REAL,               -- CNN manipulation score 0.0-1.0
-                AE_Error     REAL,               -- Autoencoder reconstruction error
-                Verdict      TEXT NOT NULL,      -- REAL, FAKE, or UNCERTAIN
-                Confidence   REAL,               -- Final confidence percentage
-                Heatmap_Path TEXT,               -- Path to saved Grad-CAM image
-                Scan_Mode    TEXT,               -- Standard or High Sensitivity
-                Process_Time REAL,               -- Seconds taken for the scan
-                Timestamp    TEXT DEFAULT (datetime('now')),
+                Result_ID TEXT PRIMARY KEY,
+                Upload_ID TEXT,
+                CNN_Score REAL, -- CNN manipulation score 0.0-1.0
+                AE_Error REAL, -- Autoencoder reconstruction error
+                Verdict TEXT NOT NULL, -- REAL, FAKE, or UNCERTAIN
+                Confidence REAL, -- Final confidence percentage
+                Heatmap_Path TEXT, -- Path to saved Grad-CAM image
+                Scan_Mode TEXT, -- Standard or High Sensitivity
+                Process_Time REAL, -- Seconds taken for the scan
+                Timestamp TEXT DEFAULT (datetime('now')),
                 FOREIGN KEY (Upload_ID) REFERENCES TBL_UPLOADS(Upload_ID)
                     ON DELETE CASCADE
             );
             -- Simple counter table — increments by 1 for every scan
             CREATE TABLE IF NOT EXISTS TBL_SCAN_COUNTER (
-                id    INTEGER PRIMARY KEY,
+                id INTEGER PRIMARY KEY,
                 total INTEGER DEFAULT 0
             );
             INSERT OR IGNORE INTO TBL_SCAN_COUNTER(id, total) VALUES(1, 0);
@@ -885,14 +890,14 @@ def fhash(b):
 # Without this decorator, models would reload on every button click — adding 30-60 seconds of wait time per scan.
 
 # Models loaded:
-#   deeptrust_spotter_v2_final.keras  — Xception CNN (166 MB)
-#   deeptrust_seq_ae.keras            — Sequential Autoencoder (64 MB)
-#   deeptrust_meta_seq_cpu.joblib     — LogReg meta-learner (CPU-calibrated)
-#   deeptrust_scaler_seq_cpu.joblib   — StandardScaler for feature normalisation
+# deeptrust_spotter_v2_final.keras — Xception CNN (166 MB)
+# deeptrust_seq_ae.keras — Sequential Autoencoder (64 MB)
+# deeptrust_meta_seq_cpu.joblib — LogReg meta-learner (CPU-calibrated)
+# deeptrust_scaler_seq_cpu.joblib — StandardScaler for feature normalisation
 #
 # Additional files loaded:
-#   feat_min.npy / feat_max.npy — min/max values for normalising GAP features
-#   These ensure the AE receives the same feature scale it was trained on.
+# feat_min.npy / feat_max.npy — min/max values for normalising GAP features
+# These ensure the AE receives the same feature scale it was trained on.
 
 
 # Google Drive file IDs for Streamlit Cloud deployment
@@ -900,11 +905,11 @@ def fhash(b):
 # On Streamlit Cloud the folder is empty — files are downloaded here.
 _GDRIVE_IDS = {
     "deeptrust_spotter_v2_final.keras": "1fTyQbF0QoDBeaPFByvjVRZwGjHXEkzgx",
-    "deeptrust_seq_ae.keras":           "1_fva2iyObUNglA3b5JCbtUs4DI_JQ3Ft",
-    "deeptrust_meta_seq_cpu.joblib":    "17YZ8UwFtNGT16CA7PN0KtNgsxgCYNygv",
-    "deeptrust_scaler_seq_cpu.joblib":  "1NsM4WODawIZfh9Rh1Ihvk6iGT5UgGDQH",
-    "feat_min.npy":                     "1byUsak_0MO4xRlUXOjxKnHqi42ZdFeDy",
-    "feat_max.npy":                     "1vsffmkA4ALjjCgprxBVRlFpqvc_Zw7Vy",
+    "deeptrust_seq_ae.keras": "1_fva2iyObUNglA3b5JCbtUs4DI_JQ3Ft",
+    "deeptrust_meta_seq_cpu.joblib": "17YZ8UwFtNGT16CA7PN0KtNgsxgCYNygv",
+    "deeptrust_scaler_seq_cpu.joblib": "1NsM4WODawIZfh9Rh1Ihvk6iGT5UgGDQH",
+    "feat_min.npy": "1byUsak_0MO4xRlUXOjxKnHqi42ZdFeDy",
+    "feat_max.npy": "1vsffmkA4ALjjCgprxBVRlFpqvc_Zw7Vy",
 }
 
 def _ensure_models():
@@ -916,7 +921,7 @@ def _ensure_models():
         if not os.path.exists(os.path.join("models", f))
     ]
     if not missing:
-        return  # all files present — laptop mode
+        return # all files present — laptop mode
     try:
         import gdown
     except ImportError:
@@ -925,7 +930,7 @@ def _ensure_models():
             [sys.executable, "-m", "pip", "install", "gdown", "-q"])
         import gdown
     for filename in missing:
-        fid  = _GDRIVE_IDS[filename]
+        fid = _GDRIVE_IDS[filename]
         dest = os.path.join("models", filename)
         print(f"[DEEPTRUST] Downloading {filename}...")
         gdown.download(
@@ -954,7 +959,7 @@ def load_models():
     # joblib is the native format; pickle works if sklearn versions differ
     try:
         import joblib
-        meta   = joblib.load("models/deeptrust_meta_seq_cpu.joblib")
+        meta = joblib.load("models/deeptrust_meta_seq_cpu.joblib")
         scaler = joblib.load("models/deeptrust_scaler_seq_cpu.joblib")
     except Exception:
         import pickle
@@ -971,9 +976,9 @@ def load_models():
     # This is what makes the pipeline truly sequential:
     # Image - CNN - GAP features - AE (not raw pixels)
     gap_extractor = tf.keras.Model(
-        inputs  = cnn.inputs,
+        inputs = cnn.inputs,
         outputs = cnn.get_layer("global_average_pooling2d").output,
-        name    = "gap_extractor"
+        name = "gap_extractor"
     )
 
     return cnn, seq_ae, meta, scaler, gap_extractor, feat_min, feat_max
@@ -988,8 +993,8 @@ def load_models():
 def clahe_normalise(img):
     arr = np.array(img.convert("RGB"))
     lab = cv2.cvtColor(arr, cv2.COLOR_RGB2LAB)
-    cl  = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-    lab[:,:,0] = cl.apply(lab[:,:,0])  # apply only to L channel
+    cl = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    lab[:,:,0] = cl.apply(lab[:,:,0]) # apply only to L channel
     return Image.fromarray(cv2.cvtColor(lab, cv2.COLOR_LAB2RGB))
 
 
@@ -1005,45 +1010,45 @@ def has_face(img):
     Returns True if a human face is detected in the image, False otherwise.
     Uses two Haar Cascade classifiers in sequence:
     1. haarcascade_frontalface_default — detects straight-on faces
-    2. haarcascade_profileface         — detects side-profile faces
+    2. haarcascade_profileface — detects side-profile faces
     This two-stage approach reduces false negatives (missed faces).
 
     Parameters:
     - scaleFactor=1.1: scan at multiple scales, stepping 10% at a time
-    - minNeighbors=4:  require 4 nearby detections to confirm a face
+    - minNeighbors=4: require 4 nearby detections to confirm a face
     - minSize=(40,40): ignore detections smaller than 40x40 pixels
     """
-    arr  = np.array(img.convert("RGB"))
+    arr = np.array(img.convert("RGB"))
     gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
 
-    # Try frontal face detection first 
+    # Try frontal face detection first
     fc = cv2.CascadeClassifier(
         cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
     faces = fc.detectMultiScale(gray, 1.1, 4, minSize=(40,40))
     if len(faces) > 0:
-        return True   # FIX: was returning False — if faces found, return True
+        return True # FIX: was returning False — if faces found, return True
 
     # Fall back to profile face detectioN
     # Catches side-on portraits that frontal detector misses
     pc = cv2.CascadeClassifier(
         cv2.data.haarcascades + "haarcascade_profileface.xml")
     profiles = pc.detectMultiScale(gray, 1.1, 3, minSize=(40,40))
-    return len(profiles) > 0  # True if profile face found, False if no face
+    return len(profiles) > 0 # True if profile face found, False if no face
 
 
 # SECTION 12: INPUT FILE VALIDATION
 # Before the image reaches any AI model, it must pass a series of security and quality checks. This function is the first line of defence.
 def validate_file(raw, filename):
-    #  Check 1: File size
+    # Check 1: File size
     if len(raw) / (1024*1024) > 10:
         return False, "This file is too large. Please upload an image smaller than 10 MB."
 
-    # Check 2: File extension 
+    # Check 2: File extension
     ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
     if ext not in ("jpg", "jpeg", "png", "webp"):
         return False, f"The file type .{ext} is not supported. Please use a JPG, PNG, or WebP image."
 
-    #  Check 3: Magic bytes
+    # Check 3: Magic bytes
     # Every image format has a unique byte signature at the start of the file.
     # JPEG files start with 0xFF 0xD8 0xFF
     # PNG files start with the bytes 0x89 PNG
@@ -1059,7 +1064,7 @@ def validate_file(raw, filename):
     try:
         img = Image.open(io.BytesIO(raw))
         img.verify()
-        img = Image.open(io.BytesIO(raw))  # reopen after verify
+        img = Image.open(io.BytesIO(raw)) # reopen after verify
         w, h = img.size
     except Exception as e:
         return False, f"Could not read image: {str(e)[:60]}"
@@ -1070,7 +1075,7 @@ def validate_file(raw, filename):
     if w > 8000 or h > 8000:
         return False, f"Image too large ({w}x{h}). Maximum 8000x8000 pixels."
 
-    return True, ""  # all checks passed
+    return True, "" # all checks passed
 
 
 
@@ -1078,25 +1083,25 @@ def validate_file(raw, filename):
 # This is the core of DEEPTRUST. It implements the three-stage hybrid pipeline:
 #
 # STAGE 1 — CNN Spotter (Xception)
-#   Input:  raw image pixels (299×299)
-#   Output: manipulation probability score 0.0–1.0
-#           AND 2048-dimensional GAP feature vector
+# Input: raw image pixels (299×299)
+# Output: manipulation probability score 0.0–1.0
+# AND 2048-dimensional GAP feature vector
 #
 # STAGE 2 — Sequential Autoencoder Anomaly Alarm
-#   Input:  CNN GAP feature vector (NOT raw pixels)
-#   Output: reconstruction error — how different this face's CNN features
-#           are from a real face's CNN features
-#   Key: AE was trained ONLY on real faces, so fakes produce higher error
+# Input: CNN GAP feature vector (NOT raw pixels)
+# Output: reconstruction error — how different this face's CNN features
+# are from a real face's CNN features
+# Key: AE was trained ONLY on real faces, so fakes produce higher error
 #
 # STAGE 3 — LogReg Meta-learner Fusion
-#   Input:  [CNN score, AE error] scaled by StandardScaler
-#   Output: FAKE/REAL probability — the final verdict
+# Input: [CNN score, AE error] scaled by StandardScaler
+# Output: FAKE/REAL probability — the final verdict
 #
 # QUALITY GATES (applied after meta-learner):
-#   CNN Gate:  CNN < 20% - trust CNN, block AE false positives
-#   Tier 1:    borderline CNN (50-65%) + clean AE - override to REAL
-#   Tier 2:    high CNN (65-95%) + very clean AE - reduce confidence
-#   UNCERTAIN: CNN 35-65% + fake probability 50-65% - show purple banner
+# CNN Gate: CNN < 20% - trust CNN, block AE false positives
+# Tier 1: borderline CNN (50-65%) + clean AE - override to REAL
+# Tier 2: high CNN (65-95%) + very clean AE - reduce confidence
+# UNCERTAIN: CNN 35-65% + fake probability 50-65% - show purple banner
 
 
 def run_inference(pil_img, mode):
@@ -1106,13 +1111,13 @@ def run_inference(pil_img, mode):
     # Load all models — cached after first call so this is instant
     cnn_model, seq_ae, meta, scaler, gap_extractor, feat_min, feat_max = \
         load_models()
-    feat_range = feat_max - feat_min + 1e-8  # avoid division by zero
+    feat_range = feat_max - feat_min + 1e-8 # avoid division by zero
 
-    # Preprocessing 
+    # Preprocessing
     # CLAHE normalisation runs first to fix lighting issues before inference
     pil_img = clahe_normalise(pil_img)
 
-    #  STAGE 1: CNN Spotter
+    # STAGE 1: CNN Spotter
     # Resize to 299×299 — required input size for Xception architecture.
     # Pixels are kept as raw 0-255 float values because the Xception model
     # has its own preprocessing layer built in that handles normalisation.
@@ -1133,49 +1138,49 @@ def run_inference(pil_img, mode):
 
     # AE reconstructs the feature vector — if the face is real, error is low.
     # If the face is a deepfake, CNN features are anomalous and error is high.
-    recon  = seq_ae(np.expand_dims(gap_norm, 0), training=False).numpy()[0]
+    recon = seq_ae(np.expand_dims(gap_norm, 0), training=False).numpy()[0]
     ae_err = float(np.mean(np.power(gap_norm - recon, 2)))
 
     # Image quality signals
     # These help the system understand the quality of the input image.
     # Low quality images (dark, blurry) can produce false positives.
-    img_gray   = np.array(pil_img.convert("L"), dtype=np.float32)
+    img_gray = np.array(pil_img.convert("L"), dtype=np.float32)
     brightness = float(np.mean(img_gray)) / 255.0
     # Laplacian variance measures image sharpness — low = blurry
-    sharpness  = min(
+    sharpness = min(
         float(cv2.Laplacian(np.uint8(img_gray), cv2.CV_64F).var()) / 500.0,
         1.0)
     # Low quality flag — used in Tier 0b gate
-    is_low_quality = sharpness < 0.5 and brightness < 0.75  
+    is_low_quality = sharpness < 0.5 and brightness < 0.75
 
-    # STAGE 3: Meta-learner Fusion 
-    # The meta-learner takes [CNN score, AE error] and learns how to  combine them into a final verdict. The scaler normalises both values  to a similar range before the LogReg makes its decision.
+    # STAGE 3: Meta-learner Fusion
+    # The meta-learner takes [CNN score, AE error] and learns how to combine them into a final verdict. The scaler normalises both values to a similar range before the LogReg makes its decision.
     # Only 2 features — CNN and AE — matching the training setup.
-    feats  = np.array([[cnn_raw, ae_err]])
+    feats = np.array([[cnn_raw, ae_err]])
     feats_scaled = scaler.transform(feats)
-    proba  = meta.predict_proba(feats_scaled)[0]
-    fp     = float(proba[1])           # probability this is FAKE
-    conf   = float(np.max(proba)) * 100
+    proba = meta.predict_proba(feats_scaled)[0]
+    fp = float(proba[1]) # probability this is FAKE
+    conf = float(np.max(proba)) * 100
     verdict = "FAKE" if fp >= 0.5 else "REAL"
     cnn_pct = cnn_raw * 100
 
-    # Quality-aware override tiers 
+    # Quality-aware override tiers
     # The meta-learner is good but not perfect on out-of-distribution inputs.
     # These tiers correct known failure modes discovered during testing.
     # They fire AFTER the meta-learner, not instead of it.
 
     ov_tier = None
 
-    # ── Quality-aware override tiers ─────────────────────────────────
+    # Quality-aware override tiers
     # Applied after the meta-learner. Three CNN zones, each with
     # different AE thresholds based on calibration testing.
     #
     # Zone A (CNN < 0.20): extremely confident REAL signal from CNN
-    #   - AE < 0.035 → gate fires, REAL  (WhatsApp / screenshot protection)
-    #   - AE ≥ 0.035 → gate blocked, FAKE kept  (animated / GPT face)
+    # - AE < 0.035 → gate fires, REAL (WhatsApp / screenshot protection)
+    # - AE ≥ 0.035 → gate blocked, FAKE kept (animated / GPT face)
     #
     # Zone B (CNN 0.20–0.50): mid-range CNN + clean AE → both say REAL
-    #   - AE < 0.028 → gate fires, REAL
+    # - AE < 0.028 → gate fires, REAL
     #
     # Zones C–D (higher CNN): handled by Tier 0b, Tier 1, Tier 2
 
@@ -1185,22 +1190,22 @@ def run_inference(pil_img, mode):
             # Zone A clean — CNN very confident REAL, AE within safe range
             # Covers WhatsApp photos, screenshots, compressed images
             verdict = "REAL"
-            fp      = fp * 0.3
-            conf    = (1 - fp) * 100
+            fp = fp * 0.3
+            conf = (1 - fp) * 100
             ov_tier = "gate"
 
         elif cnn_raw < 0.20 and ae_err >= 0.035:
             # Zone A elevated — CNN says real but AE significantly elevated
             # Split by CNN floor:
-            #   CNN < 9%  → extremely strong REAL signal, AE cannot override
-            #              (0.35% CNN on a selfie is categorically different
-            #               from 15% CNN on an ambiguous image)
-            #   CNN 9-20% → genuinely ambiguous, trust the AE (animated/GPT face)
+            # CNN < 9% → extremely strong REAL signal, AE cannot override
+            # (0.35% CNN on a selfie is categorically different
+            # from 15% CNN on an ambiguous image)
+            # CNN 9-20% → genuinely ambiguous, trust the AE (animated/GPT face)
             if cnn_raw < 0.09:
                 # CNN floor — too strong a REAL signal for AE to override
                 verdict = "REAL"
-                fp      = fp * 0.3
-                conf    = (1 - fp) * 100
+                fp = fp * 0.3
+                conf = (1 - fp) * 100
                 ov_tier = "gate"
             else:
                 # AE override — CNN has some fake signal, AE elevation meaningful
@@ -1209,8 +1214,8 @@ def run_inference(pil_img, mode):
         elif 0.20 <= cnn_raw < 0.50 and ae_err < 0.028:
             # Zone B — both branches point to REAL → override
             verdict = "REAL"
-            fp      = fp * 0.35
-            conf    = (1 - fp) * 100
+            fp = fp * 0.35
+            conf = (1 - fp) * 100
             ov_tier = "gate"
 
         # Tier 0b — Strong CNN REAL + low quality image
@@ -1219,8 +1224,8 @@ def run_inference(pil_img, mode):
                 and fp < 0.65
                 and is_low_quality):
             verdict = "REAL"
-            fp      = fp * 0.4
-            conf    = (1 - fp) * 100
+            fp = fp * 0.4
+            conf = (1 - fp) * 100
             ov_tier = "0b"
 
         # Tier 1 — Borderline CNN + very clean AE
@@ -1230,8 +1235,8 @@ def run_inference(pil_img, mode):
                 and ae_err < 0.015
                 and sharpness < 0.70):
             verdict = "REAL"
-            fp      = fp * 0.5
-            conf    = (1 - fp) * 100
+            fp = fp * 0.5
+            conf = (1 - fp) * 100
             ov_tier = "1"
 
         # Tier 2 — High CNN + anomalously clean AE
@@ -1240,9 +1245,9 @@ def run_inference(pil_img, mode):
         # Reduce confidence rather than flip the verdict.
         elif (65.0 < cnn_pct <= 95.0
                 and ae_err < 0.008):
-            fp      = fp * 0.65
+            fp = fp * 0.65
             verdict = "FAKE" if fp >= 0.5 else "REAL"
-            conf    = (fp * 100) if verdict == "FAKE" else ((1 - fp) * 100)
+            conf = (fp * 100) if verdict == "FAKE" else ((1 - fp) * 100)
             ov_tier = "2"
 
     # UNCERTAIN gate
@@ -1275,9 +1280,9 @@ def run_inference(pil_img, mode):
     try:
         # Primary path: extract from nested Xception sub-model
         # The CNN is structured as: outer_model - xception - classification We need to reach inside the xception sub-model to get the feature map
-        xb   = cnn_model.get_layer("xception")
-        fe   = tf.keras.models.Model(
-            inputs  = xb.input,
+        xb = cnn_model.get_layer("xception")
+        fe = tf.keras.models.Model(
+            inputs = xb.input,
             outputs = xb.get_layer("block14_sepconv2_act").output)
         # Xception requires its specific preprocessing (scales pixels to -1 to +1)
         fmap = fe.predict(
@@ -1285,22 +1290,22 @@ def run_inference(pil_img, mode):
             verbose=0)
 
     except Exception:
-        # Fallback path: access layer directly from outer model 
+        # Fallback path: access layer directly from outer model
         # If the nested path fails (model structure difference), try directly
-        fe   = tf.keras.models.Model(
-            inputs  = cnn_model.input,
+        fe = tf.keras.models.Model(
+            inputs = cnn_model.input,
             outputs = cnn_model.get_layer("block14_sepconv2_act").output)
         fmap = fe.predict(b_cnn, verbose=0)
 
     # Build the heatmap from feature activations
     # fmap shape: (1, H, W, C) — 1 image, spatial grid, many channels
     # Average across all channels (axis=-1) to get one activation map
-    hm = np.squeeze(np.mean(fmap, axis=-1))   # shape: (H, W)
+    hm = np.squeeze(np.mean(fmap, axis=-1)) # shape: (H, W)
 
     # ReLU — keep only positive activations (manipulated regions)
     # Normalise to 0-1 range for consistent colour mapping
     hm = np.maximum(hm, 0)
-    hm /= (np.max(hm) + 1e-10)               # avoid division by zero
+    hm /= (np.max(hm) + 1e-10) # avoid division by zero
 
     # Apply threshold — suppress low-activation background noise
     # Gaussian blur softens the edges for a cleaner visual overlay
@@ -1316,50 +1321,50 @@ def run_inference(pil_img, mode):
 
     # Blend original image (70%) with heatmap (30%) for the overlay
     overlay = cv2.addWeighted(
-        np.uint8(np.array(img_c)), 0.7,   # original image at 70% opacity
-        hmc,                               0.3,   # heatmap at 30% opacity
+        np.uint8(np.array(img_c)), 0.7, # original image at 70% opacity
+        hmc, 0.3, # heatmap at 30% opacity
         0)
 
     # Save heatmap overlay to disk
     # Saved to results/previews/ folder for display in the app and PDF
     os.makedirs("results/previews", exist_ok=True)
-    rid   = mk_result(st.session_state.upload_id)
+    rid = mk_result(st.session_state.upload_id)
     hpath = f"results/previews/{rid}.png"
     # OpenCV saves in BGR format — convert from RGB before saving
     cv2.imwrite(hpath, cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR))
 
-    # Extract regional anomaly scores 
+    # Extract regional anomaly scores
     # Divide the heatmap into facial regions by vertical position.
     # This gives percentage anomaly scores for each region.
     # The heatmap rows correspond approximately to face zones:
-    #   0-20%  of height → Hair / forehead boundary
-    #   25-45% of height → Eye region
-    #   10-60% of height → Skin texture (broad mid-face)
-    #   55-75% of height → Mouth / chin area
+    # 0-20% of height → Hair / forehead boundary
+    # 25-45% of height → Eye region
+    # 10-60% of height → Skin texture (broad mid-face)
+    # 55-75% of height → Mouth / chin area
     h, w = hmr.shape
     reg = {
-        "Eye region":    float(np.mean(hmr[int(h*.25):int(h*.45), :])),
-        "Skin texture":  float(np.mean(hmr[int(h*.10):int(h*.60), :])),
-        "Mouth area":    float(np.mean(hmr[int(h*.55):int(h*.75), :])),
-        "Hair boundary": float(np.mean(hmr[0:int(h*.20),          :])),
+        "Eye region": float(np.mean(hmr[int(h*.25):int(h*.45), :])),
+        "Skin texture": float(np.mean(hmr[int(h*.10):int(h*.60), :])),
+        "Mouth area": float(np.mean(hmr[int(h*.55):int(h*.75), :])),
+        "Hair boundary": float(np.mean(hmr[0:int(h*.20), :])),
     }
     # Normalise all scores so the highest region = 100% and others scale down
-    mx  = max(reg.values()) + 1e-10
+    mx = max(reg.values()) + 1e-10
     reg = {k: round(v/mx * 100, 1) for k,v in reg.items()}
 
     # Return complete inference results as a dictionary
     # All downstream functions (display, PDF, database, summary) read from this dict
     return dict(
-        cnn_score   = round(cnn_raw * 100, 2),   # CNN score as percentage
-        ae_error    = round(ae_err, 4),            # AE reconstruction error
-        verdict     = verdict,                     # REAL, FAKE, or UNCERTAIN
-        confidence  = round(conf, 1),              # Final confidence %
-        hmap        = hpath,                       # Path to saved heatmap file
-        orig        = pil_img,                     # Original PIL image (for PDF)
-        hmap_img    = Image.fromarray(overlay),    # Heatmap PIL image (for PDF)
-        regions     = reg,                         # Regional anomaly scores dict
-        result_id   = rid,                         # RES-XXXX-HYB identifier
-        ov_tier     = ov_tier,                     # Which override tier fired (if any)
+        cnn_score = round(cnn_raw * 100, 2), # CNN score as percentage
+        ae_error = round(ae_err, 4), # AE reconstruction error
+        verdict = verdict, # REAL, FAKE, or UNCERTAIN
+        confidence = round(conf, 1), # Final confidence %
+        hmap = hpath, # Path to saved heatmap file
+        orig = pil_img, # Original PIL image (for PDF)
+        hmap_img = Image.fromarray(overlay), # Heatmap PIL image (for PDF)
+        regions = reg, # Regional anomaly scores dict
+        result_id = rid, # RES-XXXX-HYB identifier
+        ov_tier = ov_tier, # Which override tier fired (if any)
     )
 
 
@@ -1367,26 +1372,26 @@ def run_inference(pil_img, mode):
 # SECTION 15: AI FORENSIC SUMMARY
 # Generates a plain-English explanation of the scan result.
 def ai_summary(r):
-    is_fake      = r["verdict"] == "FAKE"
+    is_fake = r["verdict"] == "FAKE"
     is_uncertain = r["verdict"] == "UNCERTAIN"
-    cnn  = r["cnn_score"]       # CNN score as percentage e.g. 31.4
-    ae   = r["ae_error"]        # AE reconstruction error e.g. 0.0319
-    conf = r["confidence"]      # Final confidence % e.g. 58.2
-    reg  = r["regions"]         # Regional anomaly dict
+    cnn = r["cnn_score"] # CNN score as percentage e.g. 31.4
+    ae = r["ae_error"] # AE reconstruction error e.g. 0.0319
+    conf = r["confidence"] # Final confidence % e.g. 58.2
+    reg = r["regions"] # Regional anomaly dict
 
     # Sort regions from highest to lowest anomaly score
     top = sorted(reg.items(), key=lambda x: x[1], reverse=True)
-    t2  = f"the {top[0][0].lower()} and {top[1][0].lower()}"
-    ts  = top[0][1]             # highest region score
-    bot = top[-1][0].lower()    # lowest region name
-    bs  = top[-1][1]            # lowest region score
+    t2 = f"the {top[0][0].lower()} and {top[1][0].lower()}"
+    ts = top[0][1] # highest region score
+    bot = top[-1][0].lower() # lowest region name
+    bs = top[-1][1] # lowest region score
 
     # Get override tier — tells us if any gate or tier modified the verdict
-    ov  = r.get("ov_tier")      # FIX: only define once, removed duplicateS
+    ov = r.get("ov_tier") # FIX: only define once, removed duplicateS
 
     # Determine the story for Ollama prompt
     cnn_direction = "above" if cnn > 50 else "below"
-    ae_direction  = "above" if ae > 0.028 else "below"
+    ae_direction = "above" if ae > 0.028 else "below"
 
     if is_fake and cnn > 50 and ae > 0.028:
         branch_story = (f"Both the CNN ({cnn}%) and the Autoencoder "
@@ -1404,7 +1409,7 @@ def ai_summary(r):
                         f"{'FAKE' if is_fake else 'REAL'} verdict.")
 
     top_region = top[0][0] if top else "face"
-    top_pct    = top[0][1] if top else 0
+    top_pct = top[0][1] if top else 0
 
     # Build structured Ollama prompt
     # Give Ollama the exact facts and a rigid template to prevent hallucination.
@@ -1431,18 +1436,18 @@ Rules:
 - Do NOT start with "I".
 - Keep it friendly and under 80 words total."""
 
-    # Try Ollama first 
+    # Try Ollama first
     try:
         resp = requests.post(
             "http://localhost:11434/api/generate",
             json={
-                "model":   "llama3.2:1b",
-                "prompt":  ollama_prompt,   
-                "stream":  False,
+                "model": "llama3.2:1b",
+                "prompt": ollama_prompt,
+                "stream": False,
                 "options": {
                     "num_predict": 200,
-                    "temperature": 0.2,     # low = stays closer to facts
-                    "stop": ["\n\n"]        # stop after first paragraph
+                    "temperature": 0.2, # low = stays closer to facts
+                    "stop": ["\n\n"] # stop after first paragraph
                 }
             },
             timeout=30)
@@ -1454,14 +1459,14 @@ Rules:
             if text and len(text) > 50 and cnn_str in text:
                 return "LOCAL-LLM", text
     except Exception:
-        pass  # Ollama not running — fall through to rule-based summary
+        pass # Ollama not running — fall through to rule-based summary
 
    
 
     # RULE-BASED SUMMARY FALLBACK
     # When Ollama is unavailable or fails the quality check, this generates a structured factual summary using the actual scan numbers.
 
-    # UNCERTAIN case 
+    # UNCERTAIN case
     if is_uncertain:
         return "LOCAL", (
             f"DEEPTRUST returned an inconclusive result at {conf}% confidence. "
@@ -1580,67 +1585,67 @@ def make_pdf(r, summary):
         Table, TableStyle, HRFlowable, Image as RLImg)
     from reportlab.lib.enums import TA_CENTER
 
-    # Store PDF in-memory 
+    # Store PDF in-memory
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4,
           leftMargin=2*cm, rightMargin=2*cm,
-          topMargin=2*cm,  bottomMargin=2*cm)
+          topMargin=2*cm, bottomMargin=2*cm)
 
-    # Colour palette ─
-    NAVY  = colors.HexColor("#1B3A5C")   # DEEPTRUST brand blue
-    RED   = colors.HexColor("#8B2020")   # FAKE verdict colour
-    GREEN = colors.HexColor("#2A5A10")   # REAL verdict colour
-    GRAY  = colors.HexColor("#4A4840")   # Body text colour
-    LGRAY = colors.HexColor("#F5F3EE")   # Alternating table row background
-    BDR   = colors.HexColor("#D4D0C4")   # Table border colour
+    # Colour palette
+    NAVY = colors.HexColor("#1B3A5C") # DEEPTRUST brand blue
+    RED = colors.HexColor("#8B2020") # FAKE verdict colour
+    GREEN = colors.HexColor("#2A5A10") # REAL verdict colour
+    GRAY = colors.HexColor("#4A4840") # Body text colour
+    LGRAY = colors.HexColor("#F5F3EE") # Alternating table row background
+    BDR = colors.HexColor("#D4D0C4") # Table border colour
 
     # Verdict colour — red for FAKE, green for REAL/UNCERTAIN
     VC = RED if r["verdict"] == "FAKE" else GREEN
 
-    # Typography styles 
+    # Typography styles
     # ps() is a shorthand helper for creating ParagraphStyle objects
     def ps(n, **kw):
         return ParagraphStyle(n, **kw)
 
     S = dict(
         h1 = ps("h1", fontSize=18, textColor=NAVY,
-                fontName="Helvetica-Bold", spaceAfter=4),     # report title
+                fontName="Helvetica-Bold", spaceAfter=4), # report title
         h2 = ps("h2", fontSize=10, textColor=GRAY,
-                fontName="Helvetica", spaceAfter=10),          # subtitle
+                fontName="Helvetica", spaceAfter=10), # subtitle
         hd = ps("hd", fontSize=11, textColor=NAVY,
                 fontName="Helvetica-Bold",
-                spaceBefore=10, spaceAfter=5),                 # section heading
+                spaceBefore=10, spaceAfter=5), # section heading
         bd = ps("bd", fontSize=10, textColor=GRAY,
                 fontName="Helvetica",
-                spaceAfter=5, leading=14),                     # body text
+                spaceAfter=5, leading=14), # body text
         vd = ps("vd", fontSize=13, textColor=VC,
-                fontName="Helvetica-Bold", spaceAfter=4),      # verdict line
-        sm = ps("sm", fontSize=8,  textColor=GRAY,
-                fontName="Helvetica-Oblique", leading=12),     # small/disclaimer
-        cp = ps("cp", fontSize=8,  textColor=GRAY,
+                fontName="Helvetica-Bold", spaceAfter=4), # verdict line
+        sm = ps("sm", fontSize=8, textColor=GRAY,
+                fontName="Helvetica-Oblique", leading=12), # small/disclaimer
+        cp = ps("cp", fontSize=8, textColor=GRAY,
                 fontName="Helvetica-Oblique",
-                alignment=TA_CENTER),                          # image caption
+                alignment=TA_CENTER), # image caption
     )
 
-    # Reusable table styles 
+    # Reusable table styles
     # ts — base table style (grid, padding, alternating row backgrounds)
     # th — header row style (navy background, white bold text)
     ts = [
-        ("FONTSIZE",       (0,0), (-1,-1), 9),
-        ("TEXTCOLOR",      (0,0), (-1,-1), GRAY),
-        ("GRID",           (0,0), (-1,-1), 0.5, BDR),
-        ("LEFTPADDING",    (0,0), (-1,-1), 7),
-        ("TOPPADDING",     (0,0), (-1,-1), 4),
-        ("BOTTOMPADDING",  (0,0), (-1,-1), 4),
+        ("FONTSIZE", (0,0), (-1,-1), 9),
+        ("TEXTCOLOR", (0,0), (-1,-1), GRAY),
+        ("GRID", (0,0), (-1,-1), 0.5, BDR),
+        ("LEFTPADDING", (0,0), (-1,-1), 7),
+        ("TOPPADDING", (0,0), (-1,-1), 4),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 4),
         ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, LGRAY]),
     ]
     th = [
         ("BACKGROUND", (0,0), (-1,0), NAVY),
-        ("TEXTCOLOR",  (0,0), (-1,0), colors.white),
-        ("FONTNAME",   (0,0), (-1,0), "Helvetica-Bold"),
+        ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+        ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
     ]
 
-    # Build the page content 
+    # Build the page content
     # ReportLab builds PDFs from a list of "flowables" — objects that flow
     # down the page: paragraphs, tables, spacers, horizontal rules.
     story = [
@@ -1651,45 +1656,45 @@ def make_pdf(r, summary):
             "DEEPFAKE DETECTED" if r["verdict"] == "FAKE" else "AUTHENTIC IMAGE",
             S["vd"]),
         Paragraph(
-            f"Confidence: <b>{r['confidence']}%</b>  |  "
+            f"Confidence: <b>{r['confidence']}%</b> | "
             f"Mode: DEEPTRUST Hybrid Ensemble",
             S["bd"]),
         Spacer(1, 6),
         Paragraph("Report Metadata", S["hd"]),
     ]
 
-    # Audit metadata table 
+    # Audit metadata table
     # Shows all the identifiers and file details for chain-of-custody purposes
     mt = Table([
-        ["Result ID",    r.get("result_id", "")],
-        ["Upload ID",    r.get("upload_id", "")],
-        ["Session ID",   r.get("session_id", "")],
-        ["Timestamp",    r.get("timestamp", "")],
-        ["File",         r.get("file_name", "")],
-        ["Size",         f"{r.get('file_size', '')} KB"],
-        ["SHA-256",      r.get("file_hash", "")[:32] + "..."],
+        ["Result ID", r.get("result_id", "")],
+        ["Upload ID", r.get("upload_id", "")],
+        ["Session ID", r.get("session_id", "")],
+        ["Timestamp", r.get("timestamp", "")],
+        ["File", r.get("file_name", "")],
+        ["Size", f"{r.get('file_size', '')} KB"],
+        ["SHA-256", r.get("file_hash", "")[:32] + "..."],
         ["Process time", f"{r.get('process_time', '')}s"],
     ], colWidths=[4*cm, 13*cm])
     mt.setStyle(TableStyle(ts + [
-        ("BACKGROUND", (0,0), (0,-1), LGRAY),           # grey key column
-        ("FONTNAME",   (0,0), (0,-1), "Helvetica-Bold"),
-        ("FONTNAME",   (1,0), (1,-1), "Helvetica"),
+        ("BACKGROUND", (0,0), (0,-1), LGRAY), # grey key column
+        ("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
+        ("FONTNAME", (1,0), (1,-1), "Helvetica"),
     ]))
     story += [mt, Spacer(1,8), Paragraph("Forensic Metrics", S["hd"])]
 
-    # AI scores table 
+    # AI scores table
     mm = Table([
-        ["Metric",     "Value",              "Threshold",      "Status"],
-        ["CNN score",  f"{r['cnn_score']}%", "Above 50% = fake",
+        ["Metric", "Value", "Threshold", "Status"],
+        ["CNN score", f"{r['cnn_score']}%", "Above 50% = fake",
             "Fake signal" if r['cnn_score'] > 50 else "Real signal"],
-        ["AE error",   f"{r['ae_error']}",   "Baseline: 0.025",
+        ["AE error", f"{r['ae_error']}", "Baseline: 0.025",
             "Elevated" if r['ae_error'] > 0.030 else "Normal"],
-        ["Confidence", f"{r['confidence']}%","—",              "—"],
+        ["Confidence", f"{r['confidence']}%","—", "—"],
     ], colWidths=[5*cm, 3*cm, 4*cm, 3.5*cm])
     mm.setStyle(TableStyle(ts + th))
     story += [mm, Spacer(1,8), Paragraph("Grad-CAM Regional Anomalies", S["hd"])]
 
-    # Regional anomaly scores table 
+    # Regional anomaly scores table
     rm = Table(
         [["Region", "Anomaly %"]] +
         [[k, f"{v}%"] for k, v in r["regions"].items()],
@@ -1697,7 +1702,7 @@ def make_pdf(r, summary):
     rm.setStyle(TableStyle(ts + th))
     story += [rm, Spacer(1,8), Paragraph("Image Evidence", S["hd"])]
 
-    # Side-by-side image evidence 
+    # Side-by-side image evidence
     # Original image on the left, Grad-CAM heatmap overlay on the right
     try:
         ob = io.BytesIO(); hb = io.BytesIO()
@@ -1710,9 +1715,9 @@ def make_pdf(r, summary):
             colWidths=[7*cm, 7*cm])
         it.setStyle(TableStyle([("ALIGN", (0,0), (-1,-1), "CENTER")]))
         story += [it,
-            Paragraph("Left: Original upload     Right: Grad-CAM heatmap", S["cp"])]
+            Paragraph("Left: Original upload Right: Grad-CAM heatmap", S["cp"])]
     except Exception:
-        pass  # if images fail, skip — rest of PDF still generates
+        pass # if images fail, skip — rest of PDF still generates
 
     # AI Summary and disclaimer
     story += [
@@ -1724,7 +1729,7 @@ def make_pdf(r, summary):
         Paragraph("Disclaimer", S["hd"]),
         Paragraph(
             "Generated by DEEPTRUST for forensic assistance only. "
-            "Should not be regarded as legal evidence without expert review. "  
+            "Should not be regarded as legal evidence without expert review. "
             "All scan data is purged on session close in accordance with the "
             "Kenya Data Protection Act (2019).",
             S["sm"]),
@@ -1741,7 +1746,7 @@ def make_pdf(r, summary):
 # What gets deleted:
 # 1. The Grad-CAM heatmap image file saved to results/previews/
 # 2. All database records (session, uploads, results) via db_purge()
-#    which cascades through all linked tables automatically
+# which cascades through all linked tables automatically
 # 3. All Streamlit session state variables reset to their defaults
 
 def clear_session():
@@ -1752,7 +1757,7 @@ def clear_session():
     if r:
         hp = r.get("hmap", "")
         if hp and os.path.exists(hp):
-            os.remove(hp)   # permanently delete the heatmap PNG file
+            os.remove(hp) # permanently delete the heatmap PNG file
 
     # Step 2: Purge database records
     # db_purge() deletes the session row from TBL_SESSIONS.
@@ -1762,25 +1767,25 @@ def clear_session():
     if sid:
         db_purge(sid)
 
-    # Step 3: Reset Streamlit session state 
+    # Step 3: Reset Streamlit session state
     # Clear all in-memory variables so the app returns to its initial state.
     # The user will need to go through consent and upload again.
     # Clear AI summary cache
     for k in list(st.session_state.keys()):
         if k.startswith("ai_txt_"):
             del st.session_state[k]
-    st.session_state.results       = None
-    st.session_state.upload_id     = None
-    st.session_state.session_id    = None
+    st.session_state.results = None
+    st.session_state.upload_id = None
+    st.session_state.session_id = None
     st.session_state.consent_given = False
     st.session_state.session_start = None
-    st.session_state.scan_history  = None
-    st.session_state.confirm_new   = False
+    st.session_state.scan_history = None
+    st.session_state.confirm_new = False
 
 
 
 # SECTION 18: UI HELPER FUNCTIONS
-# These small functions generate reusable HTML/CSS components used  throughout the app's output page. Keeping them as functions avoids repeating the same HTML string everywhere and makes the code easier to read.
+# These small functions generate reusable HTML/CSS components used throughout the app's output page. Keeping them as functions avoids repeating the same HTML string everywhere and makes the code easier to read.
 def start_new_scan():
     """
     Resets for a new scan WITHOUT destroying the session.
@@ -1799,153 +1804,224 @@ def start_new_scan():
         if hp and os.path.exists(hp):
             os.remove(hp)
     # Reset result and upload but KEEP session + history
-    st.session_state.results   = None
+    st.session_state.results = None
     st.session_state.upload_id = None
     st.session_state.confirm_new = False
 
 
 def navbar():
-    sess    = st.session_state.session_id
-    scans   = db_count()
+    sess = st.session_state.session_id
+    scans = db_count()
     start_t = st.session_state.get("session_start", "")
 
-    # Navbar background strip + session strip CSS
-    st.markdown(f"""<style>
-    .dt-navbar-wrap {{
-        background: {T['nav']};
-        border-bottom: 1px solid {T['border']};
-        margin: -1rem -1rem 0 -1rem;
-        padding: 6px 1.5rem;
-    }}
-    .dt-session-wrap {{
-        background: {T['nav']};
-        border-bottom: 1px solid {T['border']};
-        margin: 0 -1rem 0.8rem -1rem;
-        padding: 3px 1.5rem 6px;
-    }}
-    /* Remove extra gap Streamlit adds above first block */
-    .block-container > div:first-child {{ margin-top: 0 !important; }}
-    </style>""", unsafe_allow_html=True)
-
-    # ── Navbar row ────────────────────────────────────────────────────
-    st.markdown('<div class="dt-navbar-wrap">', unsafe_allow_html=True)
-
-    col_logo, col_home, col_log, col_help, col_theme, col_menu = \
-        st.columns([4, 1, 1.1, 1, 1.3, 0.8])
-
-    # Logo — always visible
-    with col_logo:
+    # SIDEBAR NAVIGATION
+    # Streamlit's native sidebar handles open/close, mobile drawer,
+    # and the hamburger icon automatically. No CSS fighting needed.
+    with st.sidebar:
+        # Sidebar header
         st.markdown(f"""
-        <div style="display:flex;align-items:center;gap:10px;padding:4px 0;">
-            <div style="width:32px;height:32px;background:{T['accent']};
-                 border-radius:6px;display:flex;align-items:center;
-                 justify-content:center;flex-shrink:0;">
-                <svg width="16" height="16" viewBox="0 0 18 18" fill="none">
-                    <circle cx="7.5" cy="7.5" r="5" stroke="#fff" stroke-width="1.5"/>
-                    <line x1="11.5" y1="11.5" x2="16" y2="16"
-                          stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>
-                    <line x1="5.5" y1="7.5" x2="9.5" y2="7.5"
-                          stroke="#AACCEE" stroke-width="1.2" stroke-linecap="round"/>
-                    <line x1="7.5" y1="5.5" x2="7.5" y2="9.5"
-                          stroke="#AACCEE" stroke-width="1.2" stroke-linecap="round"/>
-                </svg>
-            </div>
-            <div>
-                <div style="font-size:14px;font-weight:600;
-                     color:{T['txt']};line-height:1.2;">DEEPTRUST</div>
-                <div style="font-size:10px;color:{T['muted']};"
-                     class="dt-logo-sub">
-                    AI deepfake detection &nbsp;|&nbsp; TUK 2026</div>
+        <div style="padding:4px 0 16px;">
+            <div style="display:flex;align-items:center;gap:10px;">
+                <div style="width:32px;height:32px;background:{T['accent']};
+                     border-radius:6px;display:flex;align-items:center;
+                     justify-content:center;flex-shrink:0;">
+                    <svg width="16" height="16" viewBox="0 0 18 18" fill="none">
+                        <circle cx="7.5" cy="7.5" r="5" stroke="#fff" stroke-width="1.5"/>
+                        <line x1="11.5" y1="11.5" x2="16" y2="16"
+                              stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>
+                        <line x1="5.5" y1="7.5" x2="9.5" y2="7.5"
+                              stroke="#AACCEE" stroke-width="1.2" stroke-linecap="round"/>
+                        <line x1="7.5" y1="5.5" x2="7.5" y2="9.5"
+                              stroke="#AACCEE" stroke-width="1.2" stroke-linecap="round"/>
+                    </svg>
+                </div>
+                <div>
+                    <div style="font-size:15px;font-weight:700;
+                         color:{T['txt']};line-height:1.2;">DEEPTRUST</div>
+                    <div style="font-size:10px;color:{T['muted']};">
+                        AI deepfake detection · TUK 2026</div>
+                </div>
             </div>
         </div>""", unsafe_allow_html=True)
 
-    # Desktop nav buttons — each wrapped in .dt-nav-btn for CSS targeting
-    with col_home:
-        st.markdown('<div class="dt-desktop-nav dt-nav-btn">', unsafe_allow_html=True)
-        if st.button("Home", key="nav_home"):
+        st.divider()
+
+        # Navigation buttons — full width, clear labels
+        st.markdown(f"<div style='font-size:10px;font-weight:600;text-transform:uppercase;"
+                    f"letter-spacing:.8px;color:{T['muted']};margin-bottom:6px;'>"
+                    f"NAVIGATE</div>", unsafe_allow_html=True)
+
+        if st.button("Home", key="nav_home", use_container_width=True):
             st.session_state.page = "welcome"
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
 
-    with col_log:
-        st.markdown('<div class="dt-desktop-nav dt-nav-btn">', unsafe_allow_html=True)
-        if st.button("My scans", key="nav_log"):
+        if st.button("My scans", key="nav_log", use_container_width=True):
             st.session_state.page = "log"
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
 
-    with col_help:
-        st.markdown('<div class="dt-desktop-nav dt-nav-btn">', unsafe_allow_html=True)
-        if st.button("Help", key="nav_help"):
+        if st.button("Help", key="nav_help", use_container_width=True):
             st.session_state.page = "help"
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
 
-    with col_theme:
-        st.markdown('<div class="dt-desktop-nav dt-nav-btn">', unsafe_allow_html=True)
-        if st.button(T["toggle_lbl"], key="tm"):
+        st.divider()
+
+        # Theme toggle
+        st.markdown(f"<div style='font-size:10px;font-weight:600;text-transform:uppercase;"
+                    f"letter-spacing:.8px;color:{T['muted']};margin-bottom:6px;'>"
+                    f"APPEARANCE</div>", unsafe_allow_html=True)
+
+        if st.button(
+            T['toggle_lbl'],
+            key="tm", use_container_width=True
+        ):
             st.session_state.dark_mode = not st.session_state.dark_mode
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
 
-    # Mobile popover — only visible on small screens via CSS
-    with col_menu:
-        st.markdown('<div class="dt-mobile-nav dt-nav-btn">', unsafe_allow_html=True)
-        with st.popover("Menu ▾", use_container_width=True):
-            st.markdown(f"<b style='color:{T['txt']}'>Navigate</b>",
-                        unsafe_allow_html=True)
-            if st.button("🏠 Home", key="mob_home", use_container_width=True):
-                st.session_state.page = "welcome"
-                st.rerun()
-            if st.button("📋 My scans", key="mob_scans", use_container_width=True):
-                st.session_state.page = "log"
-                st.rerun()
-            if st.button("❓ Help", key="mob_help", use_container_width=True):
-                st.session_state.page = "help"
-                st.rerun()
+        st.divider()
+
+        # Session identity panel
+        st.markdown(f"<div style='font-size:10px;font-weight:600;text-transform:uppercase;"
+                    f"letter-spacing:.8px;color:{T['muted']};margin-bottom:8px;'>"
+                    f"SESSION</div>", unsafe_allow_html=True)
+
+        if sess:
+            scan_txt = f"{scans} scan{'s' if scans != 1 else ''}"
+            st.markdown(f"""
+            <div style="background:{T['real_bg']};border:1px solid {T['real_br']};
+                 border-radius:8px;padding:10px 12px;">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                    <div style="width:20px;height:20px;background:{T['bar_ok']};
+                         border-radius:50%;display:flex;align-items:center;
+                         justify-content:center;flex-shrink:0;">
+                        <svg width="10" height="10" viewBox="0 0 14 14" fill="none">
+                            <circle cx="7" cy="5" r="3" stroke="#fff" stroke-width="1.4"/>
+                            <path d="M1 13c0-3 2.7-5 6-5s6 2 6 5" stroke="#fff"
+                                  stroke-width="1.4" stroke-linecap="round" fill="none"/>
+                        </svg>
+                    </div>
+                    <span style="font-size:10px;font-weight:600;
+                          color:{T['real_txt']};">Active session</span>
+                </div>
+                <div style="font-size:10px;font-family:'JetBrains Mono',monospace;
+                     color:{T['bar_ok']};font-weight:600;word-break:break-all;
+                     margin-bottom:4px;">{sess}</div>
+                <div style="font-size:10px;color:{T['real_sub']};">
+                    {scan_txt} · Since {start_t}
+                </div>
+            </div>""", unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div style="background:{T['bg_sec']};border:1px solid {T['border']};
+                 border-radius:8px;padding:10px 12px;
+                 font-size:11px;color:{T['muted']};">
+                No active session.<br>
+                Accept consent on the scan page to begin.
+            </div>""", unsafe_allow_html=True)
+
+        # Scan history in sidebar if available
+        history = st.session_state.get("scan_history") or []
+        if history:
             st.divider()
-            if st.button(T["toggle_lbl"], key="mob_theme", use_container_width=True):
-                st.session_state.dark_mode = not st.session_state.dark_mode
-                st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown(f"<div style='font-size:10px;font-weight:600;text-transform:uppercase;"
+                        f"letter-spacing:.8px;color:{T['muted']};margin-bottom:8px;'>"
+                        f"RECENT SCANS</div>", unsafe_allow_html=True)
+            for i, h in enumerate(reversed(history[-5:]), 1):
+                vcol = T['bar_fake'] if h['verdict']=="FAKE" else (
+                       T['bar_ok'] if h['verdict']=="REAL" else "#7B6EBB")
+                st.markdown(f"""
+                <div style="padding:6px 0;border-bottom:1px solid {T['border']};
+                     font-size:11px;">
+                    <span style="color:{vcol};font-weight:600;">{h['verdict']}</span>
+                    <span style="color:{T['muted']};"> · {h['conf']:.0f}%</span><br>
+                    <span style="color:{T['txt2']};font-size:10px;">{h['file']}</span>
+                </div>""", unsafe_allow_html=True)
 
-    st.markdown('</div>', unsafe_allow_html=True)  # close dt-navbar-wrap
+        # Footer
+        st.markdown(f"""
+        <div style="margin-top:24px;font-size:10px;color:{T['muted']};
+             line-height:1.6;border-top:1px solid {T['border']};padding-top:10px;">
+            DEEPTRUST v1.9<br>
+            Final Year Project · TUK 2026<br>
+            Kenya DPA 2019 compliant
+        </div>""", unsafe_allow_html=True)
 
-    # Inject late fix for primary CTA buttons
+    # Topbar: logo only (sidebar hamburger handles nav)
     inject_button_fix()
 
-    # ── Session identity strip ────────────────────────────────────────
+    st.markdown(f"""<style>
+    .dt-topbar {{
+        background: {T['nav']};
+        border-bottom: 1px solid {T['border']};
+        margin: -1rem -1rem 0.8rem -1rem;
+        padding: 8px 1.5rem 8px 4.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }}
+    .dt-session-strip {{
+        font-size: 10.5px;
+        font-family: 'JetBrains Mono', monospace;
+        font-weight: 600;
+        color: {T['bar_ok']};
+    }}
+    .dt-session-meta {{
+        font-size: 10px;
+        color: {T['muted']};
+        margin-left: 6px;
+    }}
+    </style>""", unsafe_allow_html=True)
+
+    # Slim topbar — just logo + session ID inline (no buttons)
     if sess:
         scan_txt = f"{scans} scan{'s' if scans != 1 else ''}"
         st.markdown(f"""
-        <div class="dt-session-wrap">
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                <div style="width:22px;height:22px;background:{T['bar_ok']};
-                     border-radius:50%;display:flex;align-items:center;
+        <div class="dt-topbar">
+            <div style="display:flex;align-items:center;gap:10px;">
+                <div style="width:28px;height:28px;background:{T['accent']};
+                     border-radius:6px;display:flex;align-items:center;
                      justify-content:center;flex-shrink:0;">
-                    <svg width="11" height="11" viewBox="0 0 14 14" fill="none">
+                    <svg width="14" height="14" viewBox="0 0 18 18" fill="none">
+                        <circle cx="7.5" cy="7.5" r="5" stroke="#fff" stroke-width="1.5"/>
+                        <line x1="11.5" y1="11.5" x2="16" y2="16"
+                              stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>
+                    </svg>
+                </div>
+                <span style="font-size:14px;font-weight:700;color:{T['txt']};">DEEPTRUST</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;">
+                <div style="width:18px;height:18px;background:{T['bar_ok']};
+                     border-radius:50%;display:flex;align-items:center;
+                     justify-content:center;">
+                    <svg width="9" height="9" viewBox="0 0 14 14" fill="none">
                         <circle cx="7" cy="5" r="3" stroke="#fff" stroke-width="1.4"/>
                         <path d="M1 13c0-3 2.7-5 6-5s6 2 6 5" stroke="#fff"
                               stroke-width="1.4" stroke-linecap="round" fill="none"/>
                     </svg>
                 </div>
-                <span style="font-size:10.5px;font-family:'JetBrains Mono',monospace;
-                      font-weight:600;color:{T['bar_ok']};">{sess}</span>
-                <span style="font-size:10px;color:{T['muted']};">
-                    &nbsp;|&nbsp; Active session
-                    &nbsp;|&nbsp; {scan_txt}
-                    &nbsp;|&nbsp; Since {start_t}
-                </span>
+                <span class="dt-session-strip">{sess}</span>
+                <span class="dt-session-meta">· {scan_txt} · {start_t}</span>
             </div>
         </div>""", unsafe_allow_html=True)
     else:
         st.markdown(f"""
-        <div class="dt-session-wrap">
-            <div style="font-size:10px;color:{T['muted']};">
-                No active session &nbsp;|&nbsp;
-                Accept the consent on the scan page to begin.
+        <div class="dt-topbar">
+            <div style="display:flex;align-items:center;gap:10px;">
+                <div style="width:28px;height:28px;background:{T['accent']};
+                     border-radius:6px;display:flex;align-items:center;
+                     justify-content:center;flex-shrink:0;">
+                    <svg width="14" height="14" viewBox="0 0 18 18" fill="none">
+                        <circle cx="7.5" cy="7.5" r="5" stroke="#fff" stroke-width="1.5"/>
+                        <line x1="11.5" y1="11.5" x2="16" y2="16"
+                              stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>
+                    </svg>
+                </div>
+                <span style="font-size:14px;font-weight:700;color:{T['txt']};">DEEPTRUST</span>
             </div>
+            <span style="font-size:10px;color:{T['muted']};">
+                No active session · Accept consent to begin
+            </span>
         </div>""", unsafe_allow_html=True)
+
 
 
 def steps(active):
@@ -1954,7 +2030,7 @@ def steps(active):
         # Determine CSS class for this step
         cls = "done" if n < active else ("on" if n == active else "")
         # Checkmark for completed steps, number for current/future
-        ic  = "&#10003;" if n < active else str(n)   # &#10003; = ✓
+        ic = "&#10003;" if n < active else str(n) # &#10003; =
         html += (f'<div class="step {cls}">'
                  f'<div class="step-n">{ic}</div>'
                  f'<span>{lbl}</span>'
@@ -1967,18 +2043,18 @@ def steps(active):
 
 
 def mkbar(lbl, pct, col, vt=None):
-    v = vt or f"{pct}%"   # use custom text if provided, else show percentage
+    v = vt or f"{pct}%" # use custom text if provided, else show percentage
     return (
         f'<div class="bar">'
-        f'  <div class="bar-h">'
-        f'    <span class="bar-lbl">{lbl}</span>'
-        f'    <span style="font-size:12px;font-weight:500;color:{col}">{v}</span>'
-        f'  </div>'
-        f'  <div class="bar-track">'
-        f'    <div class="bar-fill" '
-        f'         style="width:{min(pct,100)}%;background:{col}">'
-        f'    </div>'
-        f'  </div>'
+        f' <div class="bar-h">'
+        f' <span class="bar-lbl">{lbl}</span>'
+        f' <span style="font-size:12px;font-weight:500;color:{col}">{v}</span>'
+        f' </div>'
+        f' <div class="bar-track">'
+        f' <div class="bar-fill" '
+        f' style="width:{min(pct,100)}%;background:{col}">'
+        f' </div>'
+        f' </div>'
         f'</div>'
     )
 
@@ -1986,8 +2062,8 @@ def mkbar(lbl, pct, col, vt=None):
 def mklog(k, v, s=""):
     return (
         f'<div class="lr">'
-        f'  <span class="lk">{k}</span>'
-        f'  <span class="lv" style="{s}">{v}</span>'
+        f' <span class="lk">{k}</span>'
+        f' <span class="lv" style="{s}">{v}</span>'
         f'</div>'
     )
 
@@ -1998,19 +2074,23 @@ def mklog(k, v, s=""):
 def inject_button_fix():
     """
     Late-injected CSS — runs after Streamlit renders its own styles.
-    Only job: ensure primary action button text stays white.
-    Nav button styling is handled by .dt-nav-btn wrapper class.
+    Ensures primary CTA buttons (Start scan, Analyse) always stay
+    accent background + white text regardless of sidebar overrides.
     """
     st.markdown(f"""<style>
-    /* Primary CTA buttons always white text on accent */
-    .stButton > button[data-testid="baseButton-primary"] {{
+    .stButton > button[data-testid="baseButton-primary"],
+    .stButton > button[kind="primary"] {{
         background-color: {T['accent']} !important;
         color: #FFFFFF !important;
         border: none !important;
         font-weight: 600 !important;
+        font-size: 14px !important;
+        padding: 12px 24px !important;
     }}
     .stButton > button[data-testid="baseButton-primary"] p,
-    .stButton > button[data-testid="baseButton-primary"] span {{
+    .stButton > button[data-testid="baseButton-primary"] span,
+    .stButton > button[kind="primary"] p,
+    .stButton > button[kind="primary"] span {{
         color: #FFFFFF !important;
     }}
     </style>""", unsafe_allow_html=True)
@@ -2023,7 +2103,7 @@ def page_welcome():
     """
     navbar()
 
-    #Heros section : title and  one-line purpose
+    #Heros section : title and one-line purpose
     st.markdown(f"""
     <div style="padding:24px 0 16px;">
         <div style="font-size:13px;font-weight:600;color:{T['accent']};
@@ -2034,19 +2114,19 @@ def page_welcome():
             Can you trust what you see online?</div>
         <div style="font-size:14px;color:{T['txt2']};max-width:680px;line-height:1.75;">
             Have you ever encountered a photo on social media that looks incredibly
-            realistic, yet something about it just feels off? Maybe it is a profile 
+            realistic, yet something about it just feels off? Maybe it is a profile
             picture of a person who seems a little too perfect, a shocking political image,
             or a celebrity endorsement that looks entirely genuine. In today’s digital world,
             your eyes can easily deceive you.
-            This is the reality of deepfakes — digitally manipulated or completely fabricated 
-            photographs of human faces created by sophisticated Artificial Intelligence (AI). 
+            This is the reality of deepfakes — digitally manipulated or completely fabricated
+            photographs of human faces created by sophisticated Artificial Intelligence (AI).
             These fakes have become so advanced that the human eye can no longer reliably spot them.
             That is where DEEPTRUST comes in. Think of DEEPTRUST as a highly trained digital investigator,
             designed to instantly uncover the truth behind any facial image.
         </div>
     </div>""", unsafe_allow_html=True)
 
-    # PRIMARY ACTION: Start scan button — above everything else 
+    # PRIMARY ACTION: Start scan button — above everything else
     # Primary action must be immediately visible on load
     ba, bb, bc = st.columns([2, 3, 2])
     with bb:
@@ -2060,7 +2140,7 @@ def page_welcome():
         No login required. No data stored. Session deleted on close.
     </div>""", unsafe_allow_html=True)
 
-    #  Two-column layout: How it works | What it detects 
+    # Two-column layout: How it works | What it detects
     left, right = st.columns(2, gap="medium")
 
     with left:
@@ -2178,7 +2258,7 @@ def page_welcome():
 
     st.markdown("<div style='margin-top:14px'></div>", unsafe_allow_html=True)
 
-    # Privacy + system performance in one row 
+    # Privacy + system performance in one row
     pa, pb = st.columns(2, gap="medium")
 
     with pa:
@@ -2239,7 +2319,7 @@ def page_welcome():
             </div>
         </div>""", unsafe_allow_html=True)
 
-    # Want to try it? demo tip at the very bottom 
+    # Want to try it? demo tip at the very bottom
     st.markdown(f"""
     <div style="background:{T['accent_light']};border:1px solid {T['border']};
          border-left:4px solid {T['accent']};border-radius:8px;
@@ -2275,7 +2355,7 @@ def page_log():
     """
     navbar()
     st.markdown("### My Scans")
-    sess  = st.session_state.session_id
+    sess = st.session_state.session_id
     start = st.session_state.get("session_start", "—")
     history = st.session_state.get("scan_history") or []
     scans = len(history)
@@ -2306,7 +2386,7 @@ def page_log():
         for i, h in enumerate(history, 1):
             verdict_label = h['verdict']
             with st.expander(
-                f"Scan {i} of {scans}  —  {h['time']}  —  {h['file']}  —  {verdict_label} {h['conf']:.0f}%",
+                f"Scan {i} of {scans} — {h['time']} — {h['file']} — {verdict_label} {h['conf']:.0f}%",
                 expanded=(i == len(history))
             ):
                 col1, col2, col3, col4 = st.columns(4)
@@ -2316,11 +2396,11 @@ def page_log():
                 with col4: st.metric("AE error", f"{h['ae']:.4f}")
 
                 st.markdown("---")
-                rid  = h['rid']
-                fn   = h['file']
-                tm   = h['time']
+                rid = h['rid']
+                fn = h['file']
+                tm = h['time']
                 st.caption(
-                    f"Result ID: {rid}  |  File: {fn}  |  Time: {tm}  |  Session: {sess}"
+                    f"Result ID: {rid} | File: {fn} | Time: {tm} | Session: {sess}"
                 )
 
                 # What this verdict means
@@ -2348,7 +2428,7 @@ def page_help():
     """Help page — pure Streamlit widgets, no HTML rendering issues."""
     navbar()
 
-    txt_col  = T['txt']
+    txt_col = T['txt']
     txt2_col = T['txt2']
     st.markdown(f"<h3 style='color:{txt_col};'>DEEPTRUST — Help Guide</h3>",
                 unsafe_allow_html=True)
@@ -2426,22 +2506,22 @@ Open [thispersondoesnotexist.com](https://thispersondoesnotexist.com), right-cli
 # This is the first page the user sees. It handles two things:
 #
 # PART A — Privacy Consent (Step 1)
-#   Shows the privacy policy card with a checkbox.
-#   Until the user ticks the checkbox, the upload section is locked.
-#   When ticked: a unique session ID is generated and registered in the DB.
-#   When unticked after ticking: the session is cleared (data purged).
+# Shows the privacy policy card with a checkbox.
+# Until the user ticks the checkbox, the upload section is locked.
+# When ticked: a unique session ID is generated and registered in the DB.
+# When unticked after ticking: the session is cleared (data purged).
 #
 # PART B — Image Upload (Step 2)
-#   Shows the file uploader after consent is given.
-#   File goes through three checks before the scan button appears:
-#     1. validate_file() — size, extension, magic bytes, resolution
-#     2. has_face()      — Haar cascade face detection gate
-#     3. If both pass: show preview, metadata chips, and scan button
+# Shows the file uploader after consent is given.
+# File goes through three checks before the scan button appears:
+# 1. validate_file() — size, extension, magic bytes, resolution
+# 2. has_face() — Haar cascade face detection gate
+# 3. If both pass: show preview, metadata chips, and scan button
 #
 # On scan button click:
-#   - run_inference() runs the full CNN → AE → meta-learner pipeline
-#   - Results are saved to database and session state
-#   - App navigates to the output page
+# - run_inference() runs the full CNN → AE → meta-learner pipeline
+# - Results are saved to database and session state
+# - App navigates to the output page
 
 def page_input():
     navbar()
@@ -2475,7 +2555,7 @@ def page_input():
     # User just ticked the checkbox — create session and register in DB
     if consent and not st.session_state.consent_given:
         st.session_state.consent_given = True
-        st.session_state.session_id    = mk_session()
+        st.session_state.session_id = mk_session()
         st.session_state.session_start = datetime.now().strftime("%H:%M")
         db_session(st.session_state.session_id)
         st.rerun()
@@ -2517,22 +2597,22 @@ def page_input():
         </div>""", unsafe_allow_html=True)
 
         if uploaded:
-            raw = uploaded.getvalue()   # read raw bytes from uploaded file
+            raw = uploaded.getvalue() # read raw bytes from uploaded file
 
-            # Validation Gate 1: File integrity and format 
+            # Validation Gate 1: File integrity and format
             # Checks size, extension, magic bytes, and PIL readability
             ok, err = validate_file(raw, uploaded.name)
             if not ok:
                 st.error(f"Upload rejected: {err}")
 
             else:
-                #  Validation Gate 2: Human face detection 
+                # Validation Gate 2: Human face detection
                 # Uses Haar cascade to confirm a face exists in the image.
                 # If the check itself crashes (rare), let the image through rather than blocking a valid upload unnecessarily.
                 try:
                     face_ok = has_face(Image.open(io.BytesIO(raw)))
                 except Exception:
-                    face_ok = True   # fail open — better than false rejection
+                    face_ok = True # fail open — better than false rejection
 
                 if not face_ok:
                     # Show styled red error banner — no face found
@@ -2554,14 +2634,14 @@ def page_input():
                     </div>""", unsafe_allow_html=True)
 
                 else:
-                    #  Image passed all checks — proceed to upload flow 
+                    # Image passed all checks — proceed to upload flow
 
                     # Generate a unique upload ID if not already set (prevents generating a new ID if user re-uploads same file)
                     if not st.session_state.upload_id:
                         st.session_state.upload_id = mk_upload()
 
-                    uid   = st.session_state.upload_id
-                    fh    = fhash(raw)
+                    uid = st.session_state.upload_id
+                    fh = fhash(raw)
                     fsize = round(len(raw) / 1024, 1)
 
                     # Log upload to TBL_UPLOADS
@@ -2641,13 +2721,13 @@ def page_input():
                             <div class="dt-upload-meta">{fsize} KB &nbsp;·&nbsp; {uid}</div>
                         </div>
                         <span class="dt-upload-ok">
-                            ✓ &nbsp; Face detected · Ready to scan
+                            &nbsp; Face detected · Ready to scan
                         </span>
                     </div>""", unsafe_allow_html=True)
 
                     # Full-width scan button — easy tap on mobile
                     scan_pressed = st.button(
-                        "🔍 Analyse — is this a deepfake?",
+                        "Analyse — is this a deepfake?",
                         type="primary",
                         use_container_width=True)
 
@@ -2661,27 +2741,27 @@ def page_input():
                         elapsed = round(time.time() - t0, 2)
                         res.update({
                             "process_time": elapsed,
-                            "file_name":    uploaded.name,
-                            "file_size":    fsize,
-                            "file_hash":    fh,
-                            "scan_mode":    "Standard",
-                            "upload_id":    uid,
-                            "session_id":   st.session_state.session_id,
-                            "timestamp":    datetime.now().strftime(
+                            "file_name": uploaded.name,
+                            "file_size": fsize,
+                            "file_hash": fh,
+                            "scan_mode": "Standard",
+                            "upload_id": uid,
+                            "session_id": st.session_state.session_id,
+                            "timestamp": datetime.now().strftime(
                                 "%Y-%m-%d %H:%M:%S"),
                         })
 
                         # Save to database
                         db_result({
-                            "rid":     res["result_id"],
-                            "uid":     res["upload_id"],
-                            "cnn":     res["cnn_score"],
-                            "ae":      res["ae_error"],
+                            "rid": res["result_id"],
+                            "uid": res["upload_id"],
+                            "cnn": res["cnn_score"],
+                            "ae": res["ae_error"],
                             "verdict": res["verdict"],
-                            "conf":    res["confidence"],
-                            "hmap":    res["hmap"],
-                            "mode":    res["scan_mode"],
-                            "t":       res["process_time"],
+                            "conf": res["confidence"],
+                            "hmap": res["hmap"],
+                            "mode": res["scan_mode"],
+                            "t": res["process_time"],
                         })
 
                         # Store result in session state
@@ -2691,13 +2771,13 @@ def page_input():
                         if not isinstance(st.session_state.scan_history, list):
                             st.session_state.scan_history = []
                         st.session_state.scan_history.append({
-                            "time":     datetime.now().strftime("%H:%M:%S"),
-                            "file":     uploaded.name,
-                            "verdict":  res["verdict"],
-                            "conf":     res["confidence"],
-                            "cnn":      res["cnn_score"],
-                            "ae":       res["ae_error"],
-                            "rid":      res["result_id"],
+                            "time": datetime.now().strftime("%H:%M:%S"),
+                            "file": uploaded.name,
+                            "verdict": res["verdict"],
+                            "conf": res["confidence"],
+                            "cnn": res["cnn_score"],
+                            "ae": res["ae_error"],
+                            "rid": res["result_id"],
                         })
 
                         st.session_state.page = "output"
@@ -2721,22 +2801,22 @@ def page_output():
         return
 
     navbar()
-    steps(3)   # Shows Step 3 (Results) as the active step
+    steps(3) # Shows Step 3 (Results) as the active step
 
-    # Determine verdict display properties 
-    verdict      = r["verdict"]
-    is_fake      = verdict == "FAKE"
+    # Determine verdict display properties
+    verdict = r["verdict"]
+    is_fake = verdict == "FAKE"
     is_uncertain = verdict == "UNCERTAIN"
 
     # CSS class suffix — controls which colour theme the verdict banner uses
     vk = "fake" if is_fake else ("uncertain" if is_uncertain else "real")
 
     # Human-readable verdict title shown in the banner
-    vt = ("Deepfake detected"               if is_fake      else
+    vt = ("Deepfake detected" if is_fake else
           "Inconclusive — expert review required" if is_uncertain else
           "Authentic image")
 
-    # ID strip — shows tracking identifiers at top of page 
+    # ID strip — shows tracking identifiers at top of page
     st.markdown(f"""
     <div style="margin-bottom:8px">
         <span class="chip">{r['result_id']}</span>
@@ -2744,7 +2824,7 @@ def page_output():
         <span class="chip">{r['session_id'][:16]}...</span>
     </div>""", unsafe_allow_html=True)
 
-    #  Verdict banner 
+    # Verdict banner
     # The large coloured box showing FAKE (red) / REAL (green) / UNCERTAIN (purple)
     # CSS classes v-fake, v-real, v-uncertain defined in Section 6
     st.markdown(f"""
@@ -2756,10 +2836,10 @@ def page_output():
         <span class="conf-{vk}">{r['confidence']}% confidence</span>
     </div>""", unsafe_allow_html=True)
 
-    # Two-column layout: metrics left, images right 
+    # Two-column layout: metrics left, images right
     cl, cr = st.columns(2, gap="medium")
 
-    #  LEFT COLUMN: Model scores and Grad-CAM bars 
+    # LEFT COLUMN: Model scores and Grad-CAM bars
     with cl:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown('<div class="sec-label">Ensemble metrics</div>',
@@ -2768,8 +2848,8 @@ def page_output():
         # Choose colours for CNN and AE metric values
         # Red if in "fake" zone, green if in "real" zone
         # FIX: correct theme keys + correct AE threshold (0.030 not 0.25)
-        cc = T["val_fake"] if r["cnn_score"] > 50    else T["val_ok"]
-        ac = T["val_fake"] if r["ae_error"]  > 0.030 else T["val_ok"]
+        cc = T["val_fake"] if r["cnn_score"] > 50 else T["val_ok"]
+        ac = T["val_fake"] if r["ae_error"] > 0.030 else T["val_ok"]
 
         # Two metric boxes side by side — CNN score and AE error
         m1, m2 = st.columns(2)
@@ -2798,7 +2878,7 @@ def page_output():
                   T["bar_info"]),
             unsafe_allow_html=True)
 
-        # Grad-CAM regional anomaly bars 
+        # Grad-CAM regional anomaly bars
         # Four bars showing which facial regions had highest anomaly activity
         # Colours: red (eye), orange-red (skin), blue (mouth), green (hair)
         st.markdown("<br>", unsafe_allow_html=True)
@@ -2808,7 +2888,7 @@ def page_output():
         rcols = [T["bar_fake"], T["val_fake"], T["bar_info"], T["bar_ok"]]
         st.markdown(
             "".join(
-                mkbar(f"  {k}", v, c, f"{v}% anomaly")
+                mkbar(f" {k}", v, c, f"{v}% anomaly")
                 for (k,v), c in zip(r["regions"].items(), rcols)
             ),
             unsafe_allow_html=True)
@@ -2841,7 +2921,7 @@ def page_output():
         </div>""", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # FORENSIC LOG 
+    # FORENSIC LOG
     # Technical audit table showing all scan parameters and decisions.
     # Each row is a key-value pair rendered by mklog().
     # Red text = flagged/concerning value, green text = normal value.
@@ -2849,21 +2929,21 @@ def page_output():
     st.markdown('<div class="sec-label">Technical forensic log</div>',
                 unsafe_allow_html=True)
 
-    bad  = T["log_bad"]   # red — confirmed anomaly
-    ok   = T["log_ok"]    # green — clean / normal
-    warn = T.get("log_warn", "color:#9A6200;font-weight:600")  # amber — borderline
+    bad = T["log_bad"] # red — confirmed anomaly
+    ok = T["log_ok"] # green — clean / normal
+    warn = T.get("log_warn", "color:#9A6200;font-weight:600") # amber — borderline
 
     log = '<div class="log">'
 
-    # Identification rows 
-    log += mklog("Result_ID",   r["result_id"])
-    log += mklog("Upload_ID",   r["upload_id"])
-    log += mklog("Session_ID",  r["session_id"])
-    log += mklog("Timestamp",   r["timestamp"])
-    log += mklog("File_Name",   r["file_name"])
-    log += mklog("File_Hash",   r["file_hash"][:24] + "...")
+    # Identification rows
+    log += mklog("Result_ID", r["result_id"])
+    log += mklog("Upload_ID", r["upload_id"])
+    log += mklog("Session_ID", r["session_id"])
+    log += mklog("Timestamp", r["timestamp"])
+    log += mklog("File_Name", r["file_name"])
+    log += mklog("File_Hash", r["file_hash"][:24] + "...")
 
-    #Model score rows — coloured red if in fake zone 
+    #Model score rows — coloured red if in fake zone
     log += mklog(
         "CNN_Score",
         f"{r['cnn_score']}% — "
@@ -2871,22 +2951,22 @@ def page_output():
         bad if r["cnn_score"] > 50 else ok)
 
     # AE threshold tiers aligned with the actual gate logic:
-    #   < 0.028  — clean real face
-    #   0.028–0.035 — borderline, gate still may return REAL
-    #   > 0.035  — elevated, AE trusted over CNN
+    # < 0.028 — clean real face
+    # 0.028–0.035 — borderline, gate still may return REAL
+    # > 0.035 — elevated, AE trusted over CNN
     _ae = r['ae_error']
     if _ae < 0.028:
-        _ae_lbl  = f"{_ae:.4f} — normal, within 0.025 real face baseline"
-        _ae_col  = ok
+        _ae_lbl = f"{_ae:.4f} — normal, within 0.025 real face baseline"
+        _ae_col = ok
     elif _ae < 0.035:
-        _ae_lbl  = f"{_ae:.4f} — borderline (0.028–0.035 range, gates may override)"
-        _ae_col  = warn
+        _ae_lbl = f"{_ae:.4f} — borderline (0.028–0.035 range, gates may override)"
+        _ae_col = warn
     else:
-        _ae_lbl  = f"{_ae:.4f} — elevated above 0.035 threshold, AE anomaly detected"
-        _ae_col  = bad
+        _ae_lbl = f"{_ae:.4f} — elevated above 0.035 threshold, AE anomaly detected"
+        _ae_col = bad
     log += mklog("AE_Error", _ae_lbl, _ae_col)
 
-    #Verdict row 
+    #Verdict row
     verd_style = bad if is_fake else (bad if is_uncertain else ok)
     log += mklog(
         "Verdict",
@@ -2896,10 +2976,10 @@ def page_output():
     # Performance and session rows
     log += mklog("Analysis_Mode",
                  "Sequential CNN - AE pipeline and LogReg meta-learner")
-    log += mklog("Process_Time",  f"{r['process_time']}s")
+    log += mklog("Process_Time", f"{r['process_time']}s")
     log += mklog("Session_Scans", str(db_count()))
 
-    #Override tier rows — only shown if a tier fired 
+    #Override tier rows — only shown if a tier fired
     ov = r.get("ov_tier")
     if ov == "gate":
         log += mklog("CNN_Gate",
@@ -2934,8 +3014,8 @@ def page_output():
     # (caching caused stale summaries from previous scans to appear)
     tier, txt = ai_summary(r)
 
-    tl = ("Anthropic API"  if tier == "API"       else
-          "Local LLM"      if tier == "LOCAL-LLM"  else
+    tl = ("Anthropic API" if tier == "API" else
+          "Local LLM" if tier == "LOCAL-LLM" else
           "Onboard expert parser")
 
     st.markdown(f"""
@@ -2948,7 +3028,7 @@ def page_output():
     </div>""", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Verdict plain-English explanation 
+    # Verdict plain-English explanation
     verdict_explain = {
         "FAKE": (
             f"<b style='color:{T['bar_fake']}'>FAKE — What this means:</b> DEEPTRUST detected signs of digital manipulation "
@@ -3006,22 +3086,22 @@ def page_output():
 
     with cb:
         if st.button("New scan", key="new_scan_btn"):
-            start_new_scan()          # keeps session ID and history
+            start_new_scan() # keeps session ID and history
             st.session_state.page = "input"
             st.rerun()
 
     with cp:
         pdf = make_pdf(r, txt)
         st.download_button(
-            label     = "Download PDF forensic report",
-            data      = pdf,
+            label = "Download PDF forensic report",
+            data = pdf,
             file_name = f"{r['result_id']}_{datetime.now().strftime('%Y%m%d')}.pdf",
-            mime      = "application/pdf",
-            type      = "primary")
+            mime = "application/pdf",
+            type = "primary")
 
 
 
-    # Legal disclaimer footer 
+    # Legal disclaimer footer
     st.markdown(f"""
     <div class="disclaimer">
         DEEPTRUST v1.9 — forensic assistance only, not legal evidence.<br>
@@ -3034,21 +3114,21 @@ def page_output():
 # The final two lines of the app determine which page to show.
 # Streamlit reruns the entire script from top to bottom on every interaction.
 # st.session_state.page acts as a simple router:
-#   "input"  - show the consent and upload page (page_input)
-#   anything else - show the results page (page_output)
+# "input" - show the consent and upload page (page_input)
+# anything else - show the results page (page_output)
 
 
 # Route to the correct page based on session state
 if st.session_state.page == "welcome":
-    page_welcome()  # Landing page — first thing users see
+    page_welcome() # Landing page — first thing users see
 elif st.session_state.page == "help":
-    page_help()     # Full help guide page
+    page_help() # Full help guide page
 elif st.session_state.page == "log":
-    page_log()      # My scans
+    page_log() # My scans
 elif st.session_state.page == "input":
-    page_input()    # Consent - Upload flow (Steps 1 and 2)
+    page_input() # Consent - Upload flow (Steps 1 and 2)
 else:
-    page_output()   # Results display (Step 3)
+    page_output() # Results display (Step 3)
 
 
 

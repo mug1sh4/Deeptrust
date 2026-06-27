@@ -340,7 +340,7 @@ section[data-testid="stSidebar"] > div:first-child > div > div {{
 /* Block container width */
 .block-container {{
     max-width: 100% !important;
-    padding: 82px 1.5rem 0 1.5rem !important;
+    padding: 34px 1.5rem 0 1.5rem !important;
     margin-top: 0 !important;
 }}
 
@@ -740,7 +740,7 @@ div[data-testid="stFileUploader"] span {{
 
 /* Mobile padding */
 @media (max-width: 640px) {{
-    .block-container {{ padding: 82px 0.5rem 0 0.5rem !important; }}
+    .block-container {{ padding: 34px 0.5rem 0 0.5rem !important; }}
 }}
 
 </style>""", unsafe_allow_html=True)

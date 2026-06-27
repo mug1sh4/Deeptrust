@@ -24,7 +24,7 @@ import io # Handles image data as bytes in memory without saving to disk
 import requests # Makes HTTP calls to external AI APIs (Anthropic, Ollama)
 from datetime import datetime # Captures the exact timestamp when a scan is performed
 from zoneinfo import ZoneInfo  # Timezone support — built-in Python 3.9+
-NBI = NBI  # Nairobi timezone (UTC+3) — used for all timestamps
+NBI = ZoneInfo("Africa/Nairobi")  # Nairobi timezone (UTC+3) — used for all timestamps
 from PIL import Image # Python Imaging Library — opens, resizes, and converts uploaded images
 
 

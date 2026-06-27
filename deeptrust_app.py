@@ -24,6 +24,7 @@ import io # Handles image data as bytes in memory without saving to disk
 import requests # Makes HTTP calls to external AI APIs (Anthropic, Ollama)
 from datetime import datetime # Captures the exact timestamp when a scan is performed
 from zoneinfo import ZoneInfo  # Timezone support — built-in Python 3.9+
+NBI = NBI  # Nairobi timezone (UTC+3) — used for all timestamps
 from PIL import Image # Python Imaging Library — opens, resizes, and converts uploaded images
 
 
@@ -898,7 +899,7 @@ def mk_upload():
     uploaded on the same day.
     Example: UP-20260529-4827
     """
-    return f"UP-{datetime.now(ZoneInfo("Africa/Nairobi")).strftime('%Y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
+    return f"UP-{datetime.now(NBI).strftime('%Y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
 
 
 def mk_result(uid):
@@ -2670,7 +2671,7 @@ def page_input():
     if consent and not st.session_state.consent_given:
         st.session_state.consent_given = True
         st.session_state.session_id = mk_session()
-        st.session_state.session_start = datetime.now(ZoneInfo("Africa/Nairobi")).strftime("%H:%M")
+        st.session_state.session_start = datetime.now(NBI).strftime("%H:%M")
         db_session(st.session_state.session_id)
         st.rerun()
 
@@ -2860,7 +2861,7 @@ def page_input():
                             "scan_mode": "Standard",
                             "upload_id": uid,
                             "session_id": st.session_state.session_id,
-                            "timestamp": datetime.now(ZoneInfo("Africa/Nairobi")).strftime(
+                            "timestamp": datetime.now(NBI).strftime(
                                 "%Y-%m-%d %H:%M:%S"),
                         })
 
@@ -2884,7 +2885,7 @@ def page_input():
                         if not isinstance(st.session_state.scan_history, list):
                             st.session_state.scan_history = []
                         st.session_state.scan_history.append({
-                            "time": datetime.now(ZoneInfo("Africa/Nairobi")).strftime("%H:%M:%S"),
+                            "time": datetime.now(NBI).strftime("%H:%M:%S"),
                             "file": uploaded.name,
                             "verdict": res["verdict"],
                             "conf": res["confidence"],
@@ -3208,7 +3209,7 @@ def page_output():
         st.download_button(
             label = "Download PDF forensic report",
             data = pdf,
-            file_name = f"{r['result_id']}_{datetime.now(ZoneInfo("Africa/Nairobi")).strftime('%Y%m%d')}.pdf",
+            file_name = f"{r['result_id']}_{datetime.now(NBI).strftime('%Y%m%d')}.pdf",
             mime = "application/pdf",
             type = "primary")
 

@@ -12,6 +12,7 @@ STUDENT REG. NUMBER: (SCCJ/01514/2022)
 # SECTION 1: IMPORTS
 # These are external libraries and tools the app needs to function.
 import streamlit as st # The web framework that powers the entire UI
+import base64             # Encodes image bytes for inline HTML display
 import numpy as np # Numerical computing — used for array maths on image pixels
 import cv2 # OpenCV — image processing (resizing, colour conversion, face detection)
 import hashlib # Generates SHA-256 hash fingerprint of uploaded images for integrity verification
@@ -47,7 +48,7 @@ st.set_page_config(
     page_title="DEEPTRUST",
     page_icon=None,
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 
@@ -67,7 +68,7 @@ for k, v in dict(
     scan_count = 0, # Tracks how many scans done this session
     db_conn = None, # SQLite connection — in-memory, wiped on session end
     session_start = None, # Timestamp when session began — shown in profile badge
-    scan_history = [], # List of past scan summaries for activity log
+    scan_history = None, # List of past scan summaries (init None, converted on first use)
     show_help = False, # Legacy — kept for compatibility
     page_before_log = None, # Remember which page to return to from log
     confirm_new = False, # Confirmation state before purging session
@@ -271,10 +272,18 @@ div[data-testid="stMarkdownContainer"] a {{
 
 /* Streamlit container overrides */
 [data-testid="stAppViewContainer"] {{ background: {T['bg_page']} !important; }}
-[data-testid="stHeader"], [data-testid="stToolbar"] {{ background: transparent !important; }}
-#MainMenu, footer {{ visibility: hidden; }}
+/* Header completely removed — no space left behind */
+[data-testid="stHeader"] {{
+    display: none !important;
+    height: 0 !important;
+    min-height: 0 !important;
+    visibility: hidden !important;
+}}
+[data-testid="stToolbar"] {{ display: none !important; }}
+[data-testid="stDecoration"] {{ display: none !important; }}
+#MainMenu, footer {{ display: none !important; visibility: hidden !important; }}
 
-/* ── Sidebar toggle: style the native >> button as a hamburger ───────
+/*Sidebar toggle: style the native >> button as a hamburger 
    Positioned inside the topbar (top:6px left:1.5rem).
    The button IS Streamlit's native toggle so clicking always works.
    We just make it look like a proper nav button instead of ">>" */
@@ -330,6 +339,8 @@ section[data-testid="stSidebar"] > div:first-child > div > div {{
 .block-container {{
     max-width: 100% !important;
     padding: 0 1.5rem !important;
+    padding-top: 0 !important;
+    margin-top: 0 !important;
 }}
 
 /* Prevent column overflow */
@@ -715,10 +726,7 @@ div[data-testid="stFileUploader"] span {{
 def get_db():
     """
     Returns the active SQLite database connection.
-    Creates it on first call (lazy initialisation).
-    Stores the connection in session state so it persists across reruns.
-    check_same_thread=False is required for Streamlit's multi-thread model.
-    row_factory=sqlite3. Row makes query results accessible as dict-like objects.
+
     """
     if st.session_state.db_conn is None:
         conn = sqlite3.connect(":memory:", check_same_thread=False)
@@ -1007,33 +1015,49 @@ def clahe_normalise(img):
 
 def has_face(img):
     """
-    Returns True if a human face is detected in the image, False otherwise.
-    Uses two Haar Cascade classifiers in sequence:
-    1. haarcascade_frontalface_default — detects straight-on faces
-    2. haarcascade_profileface — detects side-profile faces
-    This two-stage approach reduces false negatives (missed faces).
-
-    Parameters:
-    - scaleFactor=1.1: scan at multiple scales, stepping 10% at a time
-    - minNeighbors=4: require 4 nearby detections to confirm a face
-    - minSize=(40,40): ignore detections smaller than 40x40 pixels
+    Returns True if a human face is detected, False otherwise.
+    Strict parameters to prevent false positives on screenshots/text:
+    - scaleFactor=1.05: fine-grained scale steps
+    - minNeighbors=10: requires 10 overlapping detections (text rarely exceeds 4-5)
+    - minSize=(100,100): ignores tiny detections from UI elements / characters
+    - CASCADE_SCALE_IMAGE flag: more accurate (slower but fewer false positives)
     """
-    arr = np.array(img.convert("RGB"))
+    arr  = np.array(img.convert("RGB"))
     gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
 
-    # Try frontal face detection first
+    # Optional: equalise histogram to improve detection on dark/washed images
+    gray = cv2.equalizeHist(gray)
+
     fc = cv2.CascadeClassifier(
         cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-    faces = fc.detectMultiScale(gray, 1.1, 4, minSize=(40,40))
-    if len(faces) > 0:
-        return True # FIX: was returning False — if faces found, return True
 
-    # Fall back to profile face detectioN
-    # Catches side-on portraits that frontal detector misses
+    # Validate cascade loaded correctly — empty cascade means file not found
+    if fc.empty():
+        return False  # fail closed — reject rather than pass everything through
+
+    faces = fc.detectMultiScale(
+        gray,
+        scaleFactor=1.05,
+        minNeighbors=10,        # was 7 — text patterns rarely get 10 hits
+        minSize=(100, 100),     # was 80 — characters never reach 100px face size
+        flags=cv2.CASCADE_SCALE_IMAGE
+    )
+    if len(faces) > 0:
+        return True
+
     pc = cv2.CascadeClassifier(
         cv2.data.haarcascades + "haarcascade_profileface.xml")
-    profiles = pc.detectMultiScale(gray, 1.1, 3, minSize=(40,40))
-    return len(profiles) > 0 # True if profile face found, False if no face
+    if pc.empty():
+        return False
+
+    profiles = pc.detectMultiScale(
+        gray,
+        scaleFactor=1.05,
+        minNeighbors=8,
+        minSize=(100, 100),
+        flags=cv2.CASCADE_SCALE_IMAGE
+    )
+    return len(profiles) > 0
 
 
 # SECTION 12: INPUT FILE VALIDATION
@@ -1226,7 +1250,7 @@ def run_inference(pil_img, mode):
             verdict = "REAL"
             fp = fp * 0.4
             conf = (1 - fp) * 100
-            ov_tier = "0b"
+            ov_tier = 0
 
         # Tier 1 — Borderline CNN + very clean AE
         # CNN 50-65% on a blurry image is unreliable.
@@ -1237,7 +1261,7 @@ def run_inference(pil_img, mode):
             verdict = "REAL"
             fp = fp * 0.5
             conf = (1 - fp) * 100
-            ov_tier = "1"
+            ov_tier = 1
 
         # Tier 2 — High CNN + anomalously clean AE
         # CNN 65-95% suggests manipulation, but AE < 0.008 is suspiciously
@@ -1248,7 +1272,7 @@ def run_inference(pil_img, mode):
             fp = fp * 0.65
             verdict = "FAKE" if fp >= 0.5 else "REAL"
             conf = (fp * 100) if verdict == "FAKE" else ((1 - fp) * 100)
-            ov_tier = "2"
+            ov_tier = 2
 
     # UNCERTAIN gate
     # Meta-learner is genuinely ambiguous and no tier has overridden.
@@ -1477,7 +1501,7 @@ Rules:
         )
 
     # Gate or tier override fired — verdict was changed to REAL
-    if not is_fake and ov in ("0b", "gate"):
+    if not is_fake and ov in (0, "gate"):
         # Explain what actually happened — CNN was confident enough to override
         ae_note = (
             f"Although the Autoencoder recorded a reconstruction error of {ae} "
@@ -1810,218 +1834,151 @@ def start_new_scan():
 
 
 def navbar():
-    sess = st.session_state.session_id
-    scans = db_count()
+    sess    = st.session_state.session_id
+    scans   = db_count()
     start_t = st.session_state.get("session_start", "")
 
-    # SIDEBAR NAVIGATION
-    # Streamlit's native sidebar handles open/close, mobile drawer,
-    # and the hamburger icon automatically. No CSS fighting needed.
-    with st.sidebar:
-        # Sidebar header
-        st.markdown(f"""
-        <div style="padding:4px 0 16px;">
-            <div style="display:flex;align-items:center;gap:10px;">
-                <div style="width:32px;height:32px;background:{T['accent']};
-                     border-radius:6px;display:flex;align-items:center;
-                     justify-content:center;flex-shrink:0;">
-                    <svg width="16" height="16" viewBox="0 0 18 18" fill="none">
-                        <circle cx="7.5" cy="7.5" r="5" stroke="#fff" stroke-width="1.5"/>
-                        <line x1="11.5" y1="11.5" x2="16" y2="16"
-                              stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>
-                        <line x1="5.5" y1="7.5" x2="9.5" y2="7.5"
-                              stroke="#AACCEE" stroke-width="1.2" stroke-linecap="round"/>
-                        <line x1="7.5" y1="5.5" x2="7.5" y2="9.5"
-                              stroke="#AACCEE" stroke-width="1.2" stroke-linecap="round"/>
-                    </svg>
-                </div>
-                <div>
-                    <div style="font-size:15px;font-weight:700;
-                         color:{T['txt']};line-height:1.2;">DEEPTRUST</div>
-                    <div style="font-size:10px;color:{T['muted']};">
-                        AI deepfake detection · TUK 2026</div>
-                </div>
-            </div>
-        </div>""", unsafe_allow_html=True)
-
-        st.divider()
-
-        # Navigation buttons — full width, clear labels
-        st.markdown(f"<div style='font-size:10px;font-weight:600;text-transform:uppercase;"
-                    f"letter-spacing:.8px;color:{T['muted']};margin-bottom:6px;'>"
-                    f"NAVIGATE</div>", unsafe_allow_html=True)
-
-        if st.button("Home", key="nav_home", use_container_width=True):
-            st.session_state.page = "welcome"
-            st.rerun()
-
-        if st.button("My scans", key="nav_log", use_container_width=True):
-            st.session_state.page = "log"
-            st.rerun()
-
-        if st.button("Help", key="nav_help", use_container_width=True):
-            st.session_state.page = "help"
-            st.rerun()
-
-        st.divider()
-
-        # Theme toggle
-        st.markdown(f"<div style='font-size:10px;font-weight:600;text-transform:uppercase;"
-                    f"letter-spacing:.8px;color:{T['muted']};margin-bottom:6px;'>"
-                    f"APPEARANCE</div>", unsafe_allow_html=True)
-
-        if st.button(
-            T['toggle_lbl'],
-            key="tm", use_container_width=True
-        ):
-            st.session_state.dark_mode = not st.session_state.dark_mode
-            st.rerun()
-
-        st.divider()
-
-        # Session identity panel
-        st.markdown(f"<div style='font-size:10px;font-weight:600;text-transform:uppercase;"
-                    f"letter-spacing:.8px;color:{T['muted']};margin-bottom:8px;'>"
-                    f"SESSION</div>", unsafe_allow_html=True)
-
-        if sess:
-            scan_txt = f"{scans} scan{'s' if scans != 1 else ''}"
-            st.markdown(f"""
-            <div style="background:{T['real_bg']};border:1px solid {T['real_br']};
-                 border-radius:8px;padding:10px 12px;">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-                    <div style="width:20px;height:20px;background:{T['bar_ok']};
-                         border-radius:50%;display:flex;align-items:center;
-                         justify-content:center;flex-shrink:0;">
-                        <svg width="10" height="10" viewBox="0 0 14 14" fill="none">
-                            <circle cx="7" cy="5" r="3" stroke="#fff" stroke-width="1.4"/>
-                            <path d="M1 13c0-3 2.7-5 6-5s6 2 6 5" stroke="#fff"
-                                  stroke-width="1.4" stroke-linecap="round" fill="none"/>
-                        </svg>
-                    </div>
-                    <span style="font-size:10px;font-weight:600;
-                          color:{T['real_txt']};">Active session</span>
-                </div>
-                <div style="font-size:10px;font-family:'JetBrains Mono',monospace;
-                     color:{T['bar_ok']};font-weight:600;word-break:break-all;
-                     margin-bottom:4px;">{sess}</div>
-                <div style="font-size:10px;color:{T['real_sub']};">
-                    {scan_txt} · Since {start_t}
-                </div>
-            </div>""", unsafe_allow_html=True)
-        else:
-            st.markdown(f"""
-            <div style="background:{T['bg_sec']};border:1px solid {T['border']};
-                 border-radius:8px;padding:10px 12px;
-                 font-size:11px;color:{T['muted']};">
-                No active session.<br>
-                Accept consent on the scan page to begin.
-            </div>""", unsafe_allow_html=True)
-
-        # Scan history in sidebar if available
-        history = st.session_state.get("scan_history") or []
-        if history:
-            st.divider()
-            st.markdown(f"<div style='font-size:10px;font-weight:600;text-transform:uppercase;"
-                        f"letter-spacing:.8px;color:{T['muted']};margin-bottom:8px;'>"
-                        f"RECENT SCANS</div>", unsafe_allow_html=True)
-            for i, h in enumerate(reversed(history[-5:]), 1):
-                vcol = T['bar_fake'] if h['verdict']=="FAKE" else (
-                       T['bar_ok'] if h['verdict']=="REAL" else "#7B6EBB")
-                st.markdown(f"""
-                <div style="padding:6px 0;border-bottom:1px solid {T['border']};
-                     font-size:11px;">
-                    <span style="color:{vcol};font-weight:600;">{h['verdict']}</span>
-                    <span style="color:{T['muted']};"> · {h['conf']:.0f}%</span><br>
-                    <span style="color:{T['txt2']};font-size:10px;">{h['file']}</span>
-                </div>""", unsafe_allow_html=True)
-
-        # Footer
-        st.markdown(f"""
-        <div style="margin-top:24px;font-size:10px;color:{T['muted']};
-             line-height:1.6;border-top:1px solid {T['border']};padding-top:10px;">
-            DEEPTRUST v1.9<br>
-            Final Year Project · TUK 2026<br>
-            Kenya DPA 2019 compliant
-        </div>""", unsafe_allow_html=True)
-
-    # Topbar: logo only (sidebar hamburger handles nav)
     inject_button_fix()
 
+    # Topbar: Logo left, popover menu right
+    # st.popover renders as ONE compact button that opens a dropdown.
+    # No columns stacking on mobile. No sidebar CSS fights.
+    # Native Streamlit — works identically on all screen sizes and modes.
     st.markdown(f"""<style>
-    .dt-topbar {{
+    /* Topbar row */
+    div[data-testid="stVerticalBlock"] > div:first-child
+    div[data-testid="stHorizontalBlock"] {{
         background: {T['nav']};
         border-bottom: 1px solid {T['border']};
-        margin: -1rem -1rem 0.8rem -1rem;
-        padding: 8px 1.5rem 8px 4.5rem;
-        display: flex;
+        margin: -1rem -1rem 0.8rem -1rem !important;
+        padding: 6px 1rem !important;
         align-items: center;
-        justify-content: space-between;
     }}
-    .dt-session-strip {{
-        font-size: 10.5px;
-        font-family: 'JetBrains Mono', monospace;
-        font-weight: 600;
-        color: {T['bar_ok']};
+    /* Menu popover trigger button */
+    div[data-testid="stVerticalBlock"] > div:first-child
+    div[data-testid="stHorizontalBlock"] button[data-testid="stBaseButton-secondary"] {{
+        background: {T['btn_bg']} !important;
+        color: #FFFFFF !important;
+        border: none !important;
+        border-radius: 6px !important;
+        font-size: 18px !important;
+        width: 40px !important;
+        height: 40px !important;
+        padding: 0 !important;
+        min-height: 0 !important;
     }}
-    .dt-session-meta {{
+    div[data-testid="stVerticalBlock"] > div:first-child
+    div[data-testid="stHorizontalBlock"] button[data-testid="stBaseButton-secondary"] p,
+    div[data-testid="stVerticalBlock"] > div:first-child
+    div[data-testid="stHorizontalBlock"] button[data-testid="stBaseButton-secondary"] span {{
+        color: #FFFFFF !important;
+        font-size: 18px !important;
+    }}
+    /* Popover panel buttons */
+    div[data-testid="stPopover"] .stButton > button {{
+        width: 100% !important;
+        text-align: left !important;
+        background: transparent !important;
+        border: none !important;
+        border-radius: 4px !important;
+        color: {T['txt']} !important;
+        font-size: 13px !important;
+        padding: 8px 12px !important;
+    }}
+    div[data-testid="stPopover"] .stButton > button:hover {{
+        background: {T['bg_sec']} !important;
+    }}
+    div[data-testid="stPopover"] .stButton > button p,
+    div[data-testid="stPopover"] .stButton > button span {{
+        color: {T['txt']} !important;
+    }}
+    /* Session strip */
+    .dt-sess {{
+        background: {T['nav']};
+        border-bottom: 1px solid {T['border']};
+        margin: -12px -1rem 0.6rem -1rem;
+        padding: 2px 1.5rem 5px;
         font-size: 10px;
         color: {T['muted']};
-        margin-left: 6px;
+    }}
+    /* Force navbar columns to NEVER stack — stay horizontal on mobile */
+    div[data-testid="stVerticalBlock"] > div:first-child
+    div[data-testid="stHorizontalBlock"] {{
+        flex-wrap: nowrap !important;
+    }}
+    div[data-testid="stVerticalBlock"] > div:first-child
+    div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child {{
+        min-width: 0 !important;
+        flex: 1 1 auto !important;
+        overflow: hidden !important;
+    }}
+    div[data-testid="stVerticalBlock"] > div:first-child
+    div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:last-child {{
+        flex: 0 0 52px !important;
+        width: 52px !important;
     }}
     </style>""", unsafe_allow_html=True)
 
-    # Slim topbar — just logo + session ID inline (no buttons)
+    c_logo, c_menu = st.columns([6, 1])
+
+    with c_logo:
+        st.markdown(f"""
+        <div style="display:flex;align-items:center;gap:8px;padding:4px 0;">
+            <div style="width:28px;height:28px;background:{T['accent']};
+                 border-radius:6px;display:flex;align-items:center;
+                 justify-content:center;flex-shrink:0;">
+                <svg width="14" height="14" viewBox="0 0 18 18" fill="none">
+                    <circle cx="7.5" cy="7.5" r="5" stroke="#fff" stroke-width="1.5"/>
+                    <line x1="11.5" y1="11.5" x2="16" y2="16"
+                          stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>
+                </svg>
+            </div>
+            <span style="font-size:14px;font-weight:700;color:{T['txt']};">DEEPTRUST</span>
+        </div>""", unsafe_allow_html=True)
+
+    with c_menu:
+        with st.popover("☰", use_container_width=False):
+            st.markdown(f"<div style='font-size:11px;color:{T['muted']};padding:4px 12px 8px;border-bottom:1px solid {T['border']};margin-bottom:4px;'>Navigation</div>", unsafe_allow_html=True)
+            if st.button("Home", key="pop_home", use_container_width=True):
+                st.session_state.page = "welcome"
+                st.rerun()
+            if st.button("My scans", key="pop_scans", use_container_width=True):
+                st.session_state.page = "log"
+                st.rerun()
+            if st.button("Help", key="pop_help", use_container_width=True):
+                st.session_state.page = "help"
+                st.rerun()
+            st.divider()
+            if st.button(T['toggle_lbl'],
+                         key="pop_theme", use_container_width=True):
+                st.session_state.dark_mode = not st.session_state.dark_mode
+                st.rerun()
+
+    # Session strip — its own line, clean and not cluttered with logo
     if sess:
         scan_txt = f"{scans} scan{'s' if scans != 1 else ''}"
-        st.markdown(f"""
-        <div class="dt-topbar">
-            <div style="display:flex;align-items:center;gap:10px;">
-                <div style="width:28px;height:28px;background:{T['accent']};
-                     border-radius:6px;display:flex;align-items:center;
-                     justify-content:center;flex-shrink:0;">
-                    <svg width="14" height="14" viewBox="0 0 18 18" fill="none">
-                        <circle cx="7.5" cy="7.5" r="5" stroke="#fff" stroke-width="1.5"/>
-                        <line x1="11.5" y1="11.5" x2="16" y2="16"
-                              stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>
-                    </svg>
-                </div>
-                <span style="font-size:14px;font-weight:700;color:{T['txt']};">DEEPTRUST</span>
-            </div>
-            <div style="display:flex;align-items:center;gap:6px;">
-                <div style="width:18px;height:18px;background:{T['bar_ok']};
+        st.markdown(f"""<div class="dt-sess">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                <div style="width:16px;height:16px;background:{T['bar_ok']};
                      border-radius:50%;display:flex;align-items:center;
-                     justify-content:center;">
-                    <svg width="9" height="9" viewBox="0 0 14 14" fill="none">
+                     justify-content:center;flex-shrink:0;">
+                    <svg width="8" height="8" viewBox="0 0 14 14" fill="none">
                         <circle cx="7" cy="5" r="3" stroke="#fff" stroke-width="1.4"/>
                         <path d="M1 13c0-3 2.7-5 6-5s6 2 6 5" stroke="#fff"
                               stroke-width="1.4" stroke-linecap="round" fill="none"/>
                     </svg>
                 </div>
-                <span class="dt-session-strip">{sess}</span>
-                <span class="dt-session-meta">· {scan_txt} · {start_t}</span>
+                <span style="font-family:'JetBrains Mono',monospace;font-weight:600;
+                      color:{T['bar_ok']};font-size:10px;">{sess}</span>
+                <span style="color:{T['muted']};font-size:10px;">
+                    · {scan_txt} · Since {start_t}</span>
             </div>
         </div>""", unsafe_allow_html=True)
     else:
-        st.markdown(f"""
-        <div class="dt-topbar">
-            <div style="display:flex;align-items:center;gap:10px;">
-                <div style="width:28px;height:28px;background:{T['accent']};
-                     border-radius:6px;display:flex;align-items:center;
-                     justify-content:center;flex-shrink:0;">
-                    <svg width="14" height="14" viewBox="0 0 18 18" fill="none">
-                        <circle cx="7.5" cy="7.5" r="5" stroke="#fff" stroke-width="1.5"/>
-                        <line x1="11.5" y1="11.5" x2="16" y2="16"
-                              stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>
-                    </svg>
-                </div>
-                <span style="font-size:14px;font-weight:700;color:{T['txt']};">DEEPTRUST</span>
-            </div>
+        st.markdown(f"""<div class="dt-sess">
             <span style="font-size:10px;color:{T['muted']};">
-                No active session · Accept consent to begin
-            </span>
+                No active session &nbsp;·&nbsp; Accept consent to begin</span>
         </div>""", unsafe_allow_html=True)
-
 
 
 def steps(active):
@@ -2096,8 +2053,8 @@ def inject_button_fix():
     .stButton > button[kind="primary"] span {{
         color: #FFFFFF !important;
     }}
-    /* Sidebar toggle — injected late so Cloud styles cannot override */
-    [data-testid="stSidebarCollapsedControl"] {{
+    /* Sidebar toggle — hardcoded colours, maximum specificity */
+    html body div[data-testid="stSidebarCollapsedControl"] {{
         position: fixed !important;
         top: 6px !important;
         left: 1.2rem !important;
@@ -2105,30 +2062,24 @@ def inject_button_fix():
         display: flex !important;
         visibility: visible !important;
         opacity: 1 !important;
-        background: {btn} !important;
-        border: 2px solid {btn} !important;
+        background: {T['btn_bg']} !important;
+        border: 3px solid {T['btn_bg']} !important;
         border-radius: 6px !important;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.4) !important;
-        width: 38px !important;
-        height: 38px !important;
+        outline: 2px solid rgba(255,255,255,0.3) !important;
+        box-shadow: 0 0 0 3px {T['btn_bg']}, 0 4px 12px rgba(0,0,0,0.5) !important;
+        width: 42px !important;
+        height: 42px !important;
         align-items: center !important;
         justify-content: center !important;
         padding: 0 !important;
     }}
-    [data-testid="stSidebarCollapsedControl"] > div {{
-        background: {btn} !important;
-        width: 38px !important;
-        height: 38px !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-    }}
-    [data-testid="stSidebarCollapsedControl"] button {{
-        background: {btn} !important;
+    html body div[data-testid="stSidebarCollapsedControl"] > div,
+    html body div[data-testid="stSidebarCollapsedControl"] button {{
+        background: {T['btn_bg']} !important;
         border: none !important;
         border-radius: 4px !important;
-        width: 38px !important;
-        height: 38px !important;
+        width: 42px !important;
+        height: 42px !important;
         padding: 0 !important;
         cursor: pointer !important;
         display: flex !important;
@@ -2136,18 +2087,17 @@ def inject_button_fix():
         justify-content: center !important;
         position: relative !important;
     }}
-    [data-testid="stSidebarCollapsedControl"] button svg {{
+    html body div[data-testid="stSidebarCollapsedControl"] button svg,
+    html body div[data-testid="stSidebarCollapsedControl"] button p,
+    html body div[data-testid="stSidebarCollapsedControl"] button span {{
         display: none !important;
     }}
-    [data-testid="stSidebarCollapsedControl"] button::before {{
-        content: "" !important;
+    html body div[data-testid="stSidebarCollapsedControl"] button::after {{
+        content: "\2630" !important;
         display: block !important;
-        width: 16px !important;
-        height: 2px !important;
-        background: #FFFFFF !important;
-        box-shadow: 0 5px 0 #FFFFFF, 0 -5px 0 #FFFFFF !important;
-        border-radius: 2px !important;
-        position: absolute !important;
+        color: #FFFFFF !important;
+        font-size: 20px !important;
+        line-height: 1 !important;
     }}
     </style>""", unsafe_allow_html=True)
 
@@ -2164,21 +2114,15 @@ def page_welcome():
     <div style="padding:24px 0 16px;">
         <div style="font-size:13px;font-weight:600;color:{T['accent']};
              letter-spacing:1.2px;text-transform:uppercase;margin-bottom:6px;">
-            Image Deepfake Detection Using Ensemble Convolutional Neural Networks and Autoencoder-Based Anomaly Analysis</div>
+            Image Deepfake Detection</div>
         <div style="font-size:30px;font-weight:700;color:{T['txt']};
              letter-spacing:-0.3px;margin-bottom:10px;">
             Can you trust what you see online?</div>
         <div style="font-size:14px;color:{T['txt2']};max-width:680px;line-height:1.75;">
-            Have you ever encountered a photo on social media that looks incredibly
-            realistic, yet something about it just feels off? Maybe it is a profile
-            picture of a person who seems a little too perfect, a shocking political image,
-            or a celebrity endorsement that looks entirely genuine. In today’s digital world,
-            your eyes can easily deceive you.
-            This is the reality of deepfakes — digitally manipulated or completely fabricated
-            photographs of human faces created by sophisticated Artificial Intelligence (AI).
-            These fakes have become so advanced that the human eye can no longer reliably spot them.
-            That is where DEEPTRUST comes in. Think of DEEPTRUST as a highly trained digital investigator,
-            designed to instantly uncover the truth behind any facial image.
+             Advanced/Complex AI now creates deepfakes—completely fake, computer-generated photos of human faces
+             that look 100% real. These hyper-realistic fakes are widely used in political scams and identity fraud.
+             Don't get fooled by "too perfect" profiles. DEEPTRUST instantly analyzes facial pixels to expose these
+             artificial manipulations before you trust them.
         </div>
     </div>""", unsafe_allow_html=True)
 
@@ -2668,7 +2612,7 @@ def page_input():
                 try:
                     face_ok = has_face(Image.open(io.BytesIO(raw)))
                 except Exception:
-                    face_ok = True # fail open — better than false rejection
+                    face_ok = False  # fail closed — if detection errors, reject safely
 
                 if not face_ok:
                     # Show styled red error banner — no face found
@@ -2764,7 +2708,6 @@ def page_input():
                     img_preview.thumbnail((160, 160))
 
                     # Convert to base64 for inline HTML display
-                    import base64
                     buf_img = io.BytesIO()
                     img_preview.save(buf_img, format="PNG")
                     b64 = base64.b64encode(buf_img.getvalue()).decode()
@@ -3041,13 +2984,13 @@ def page_output():
         log += mklog("CNN_Gate",
             "CNN < 20% — strong REAL signal, AE override blocked",
             ok)
-    elif ov == "0b":
+    elif ov == 0:
         log += mklog("AE_Override",
             "Tier 0b — strong CNN REAL and low quality image", ok)
-    elif ov == "1":
+    elif ov == 1:
         log += mklog("AE_Override",
             "Tier 1 — borderline CNN overridden by clean AE error", ok)
-    elif ov == "2":
+    elif ov == 2:
         log += mklog("AE_Override",
             "Tier 2 — quality uncertainty flagged, confidence reduced", bad)
     elif ov == "U":

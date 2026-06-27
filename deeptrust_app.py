@@ -23,6 +23,7 @@ import sqlite3 # Lightweight database — stores scan results in memory during t
 import io # Handles image data as bytes in memory without saving to disk
 import requests # Makes HTTP calls to external AI APIs (Anthropic, Ollama)
 from datetime import datetime # Captures the exact timestamp when a scan is performed
+from zoneinfo import ZoneInfo  # Timezone support — built-in Python 3.9+
 from PIL import Image # Python Imaging Library — opens, resizes, and converts uploaded images
 
 
@@ -338,8 +339,7 @@ section[data-testid="stSidebar"] > div:first-child > div > div {{
 /* Block container width */
 .block-container {{
     max-width: 100% !important;
-    padding: 0 1.5rem !important;
-    padding-top: 0 !important;
+    padding: 82px 1.5rem 0 1.5rem !important;
     margin-top: 0 !important;
 }}
 
@@ -417,9 +417,37 @@ div[data-testid="stFileUploader"] span {{
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin: -1rem -1rem 1.5rem -1rem; /* bleed to full width */
+    margin: -1rem -1rem 1.5rem -1rem;
     flex-wrap: wrap;
     gap: 8px;
+}}
+/* Fixed navbar bar — always visible, never scrolls away */
+.dt-navbar {{
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 9998;
+    background: {T['nav']};
+    border-bottom: 1px solid {T['border']};
+    height: 52px;
+    display: flex;
+    align-items: center;
+    padding: 0 1rem 0 1.2rem;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.07);
+}}
+/* Fixed session strip — just below navbar */
+.dt-sess-fixed {{
+    position: fixed;
+    top: 52px;
+    left: 0;
+    right: 0;
+    z-index: 9997;
+    background: {T['nav']};
+    border-bottom: 1px solid {T['border']};
+    padding: 3px 1.5rem;
+    font-size: 10px;
+    color: {T['muted']};
 }}
 /* Logo section — icon square + name + tagline stacked */
 .logo {{ display: flex; align-items: center; gap: 12px; }}
@@ -711,7 +739,7 @@ div[data-testid="stFileUploader"] span {{
 
 /* Mobile padding */
 @media (max-width: 640px) {{
-    .block-container {{ padding: 0 0.5rem !important; }}
+    .block-container {{ padding: 82px 0.5rem 0 0.5rem !important; }}
 }}
 
 </style>""", unsafe_allow_html=True)
@@ -870,7 +898,7 @@ def mk_upload():
     uploaded on the same day.
     Example: UP-20260529-4827
     """
-    return f"UP-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
+    return f"UP-{datetime.now(ZoneInfo("Africa/Nairobi")).strftime('%Y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
 
 
 def mk_result(uid):
@@ -1845,14 +1873,20 @@ def navbar():
     # No columns stacking on mobile. No sidebar CSS fights.
     # Native Streamlit — works identically on all screen sizes and modes.
     st.markdown(f"""<style>
-    /* Topbar row */
+    /* Topbar row — fixed at top on scroll */
     div[data-testid="stVerticalBlock"] > div:first-child
     div[data-testid="stHorizontalBlock"] {{
         background: {T['nav']};
         border-bottom: 1px solid {T['border']};
-        margin: -1rem -1rem 0.8rem -1rem !important;
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        z-index: 9998 !important;
+        margin: 0 !important;
         padding: 6px 1rem !important;
         align-items: center;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
     }}
     /* Menu popover trigger button */
     div[data-testid="stVerticalBlock"] > div:first-child
@@ -1892,12 +1926,17 @@ def navbar():
     div[data-testid="stPopover"] .stButton > button span {{
         color: {T['txt']} !important;
     }}
-    /* Session strip */
+    /* Session strip — fixed just below the navbar */
     .dt-sess {{
         background: {T['nav']};
         border-bottom: 1px solid {T['border']};
-        margin: -12px -1rem 0.6rem -1rem;
-        padding: 2px 1.5rem 5px;
+        position: fixed !important;
+        top: 52px !important;
+        left: 0 !important;
+        right: 0 !important;
+        z-index: 9997 !important;
+        margin: 0 !important;
+        padding: 3px 1.5rem 4px;
         font-size: 10px;
         color: {T['muted']};
     }}
@@ -1919,24 +1958,27 @@ def navbar():
     }}
     </style>""", unsafe_allow_html=True)
 
-    c_logo, c_menu = st.columns([6, 1])
-
-    with c_logo:
-        st.markdown(f"""
-        <div style="display:flex;align-items:center;gap:8px;padding:4px 0;">
-            <div style="width:28px;height:28px;background:{T['accent']};
-                 border-radius:6px;display:flex;align-items:center;
+    # Render logo as a truly fixed HTML element — Streamlit cannot scroll this away
+    st.markdown(f"""
+    <div class="dt-navbar">
+        <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:36px;height:36px;background:{T['accent']};
+                 border-radius:8px;display:flex;align-items:center;
                  justify-content:center;flex-shrink:0;">
-                <svg width="14" height="14" viewBox="0 0 18 18" fill="none">
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
                     <circle cx="7.5" cy="7.5" r="5" stroke="#fff" stroke-width="1.5"/>
                     <line x1="11.5" y1="11.5" x2="16" y2="16"
                           stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>
                 </svg>
             </div>
-            <span style="font-size:14px;font-weight:700;color:{T['txt']};">DEEPTRUST</span>
-        </div>""", unsafe_allow_html=True)
+            <span style="font-size:19px;font-weight:700;color:{T['txt']};
+                  letter-spacing:0.3px;">DEEPTRUST</span>
+        </div>
+    </div>""", unsafe_allow_html=True)
 
-    with c_menu:
+    # Popover column — made fixed via inject_button_fix() CSS
+    c_menu_only, = st.columns([1])
+    with c_menu_only:
         with st.popover("☰", use_container_width=False):
             st.markdown(f"<div style='font-size:11px;color:{T['muted']};padding:4px 12px 8px;border-bottom:1px solid {T['border']};margin-bottom:4px;'>Navigation</div>", unsafe_allow_html=True)
             if st.button("Home", key="pop_home", use_container_width=True):
@@ -1957,7 +1999,7 @@ def navbar():
     # Session strip — its own line, clean and not cluttered with logo
     if sess:
         scan_txt = f"{scans} scan{'s' if scans != 1 else ''}"
-        st.markdown(f"""<div class="dt-sess">
+        st.markdown(f"""<div class="dt-sess-fixed">
             <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                 <div style="width:16px;height:16px;background:{T['bar_ok']};
                      border-radius:50%;display:flex;align-items:center;
@@ -1975,7 +2017,7 @@ def navbar():
             </div>
         </div>""", unsafe_allow_html=True)
     else:
-        st.markdown(f"""<div class="dt-sess">
+        st.markdown(f"""<div class="dt-sess-fixed">
             <span style="font-size:10px;color:{T['muted']};">
                 No active session &nbsp;·&nbsp; Accept consent to begin</span>
         </div>""", unsafe_allow_html=True)
@@ -2099,6 +2141,34 @@ def inject_button_fix():
         font-size: 20px !important;
         line-height: 1 !important;
     }}
+    /* ── Popover container — fixed top-right, always visible ── */
+    div[data-testid="stPopover"],
+    div[data-testid="stVerticalBlock"] > div:first-child div[data-testid="stPopover"] {{
+        position: fixed !important;
+        top: 6px !important;
+        right: 1rem !important;
+        z-index: 99999 !important;
+    }}
+    /* Popover trigger button styling */
+    div[data-testid="stPopover"] > button,
+    div[data-testid="stPopover"] > div > button,
+    button[data-testid="stBaseButton-secondary"][aria-haspopup] {{
+        background-color: {T['btn_bg']} !important;
+        background: {T['btn_bg']} !important;
+        color: #FFFFFF !important;
+        border: none !important;
+        border-radius: 6px !important;
+        width: 40px !important;
+        height: 40px !important;
+        min-height: 0 !important;
+        padding: 0 !important;
+        font-size: 16px !important;
+    }}
+    div[data-testid="stPopover"] > button *,
+    div[data-testid="stPopover"] > div > button * {{
+        color: #FFFFFF !important;
+        fill: #FFFFFF !important;
+    }}
     </style>""", unsafe_allow_html=True)
 
 
@@ -2111,18 +2181,19 @@ def page_welcome():
 
     #Heros section : title and one-line purpose
     st.markdown(f"""
-    <div style="padding:24px 0 16px;">
-        <div style="font-size:13px;font-weight:600;color:{T['accent']};
+    <div style="padding:10px 0 10px;text-align:center;">
+        <div style="font-size:11px;font-weight:600;color:{T['accent']};
              letter-spacing:1.2px;text-transform:uppercase;margin-bottom:6px;">
             Image Deepfake Detection</div>
-        <div style="font-size:30px;font-weight:700;color:{T['txt']};
+        <div style="font-size:28px;font-weight:700;color:{T['txt']};
              letter-spacing:-0.3px;margin-bottom:10px;">
             Can you trust what you see online?</div>
-        <div style="font-size:14px;color:{T['txt2']};max-width:680px;line-height:1.75;">
-             Advanced/Complex AI now creates deepfakes—completely fake, computer-generated photos of human faces
-             that look 100% real. These hyper-realistic fakes are widely used in political scams and identity fraud.
-             Don't get fooled by "too perfect" profiles. DEEPTRUST instantly analyzes facial pixels to expose these
-             artificial manipulations before you trust them.
+        <div style="font-size:13px;color:{T['txt2']};max-width:600px;
+             line-height:1.7;margin:0 auto;">
+             AI now creates deepfakes — completely fake, computer-generated faces
+             that look 100% real, used in political scams and identity fraud.
+             DEEPTRUST instantly analyses facial pixels to expose manipulation
+             before you trust them.
         </div>
     </div>""", unsafe_allow_html=True)
 
@@ -2349,67 +2420,110 @@ def page_welcome():
 # ACTIVITY LOG PAGE — page_log()
 # Shown when user clicks My scans in the navbar.
 def page_log():
-    """
-    My scans page — pure Streamlit widgets for full dark/light mode support.
-    Shows session ID, scan history, and lets user navigate.
-    """
+    """My scans page — compact layout with smaller text."""
     navbar()
-    st.markdown("### My Scans")
+
+    # Compact page header
+    st.markdown(f"""
+    <div style="font-size:15px;font-weight:700;color:{T['txt']};
+         margin-bottom:8px;">My Scans</div>""", unsafe_allow_html=True)
+
     sess = st.session_state.session_id
     start = st.session_state.get("session_start", "—")
     history = st.session_state.get("scan_history") or []
     scans = len(history)
 
     if not sess:
-        st.warning("No active session. Accept the consent on the scan page to begin.")
+        st.markdown(f"""<div style="font-size:12px;color:{T['muted']};
+            padding:8px 12px;background:{T['bg_sec']};border-radius:6px;">
+            No active session. Accept the consent on the scan page to begin.
+        </div>""", unsafe_allow_html=True)
         if st.button("Go to scan page"):
             st.session_state.page = "input"
             st.rerun()
         return
 
-    # Session summary using st.metric (fully dark-mode aware)
-    ca, cb, cc, cd = st.columns(4)
-    with ca: st.metric("Session ID", sess[:18]+"...")
-    with cb: st.metric("Session started", start)
-    with cc: st.metric("Total scans", scans)
-    with cd: st.metric("Status", "Active")
+    # Compact session summary row
+    st.markdown(f"""
+    <div style="display:flex;gap:16px;flex-wrap:wrap;padding:8px 12px;
+         background:{T['bg_sec']};border-radius:6px;margin-bottom:10px;
+         font-size:11px;color:{T['muted']};">
+        <span><b style="color:{T['txt']};">Session</b> {sess[:16]}...</span>
+        <span><b style="color:{T['txt']};">Started</b> {start}</span>
+        <span><b style="color:{T['txt']};">Scans</b> {scans}</span>
+        <span style="color:{T['bar_ok']};font-weight:600;">Active</span>
+    </div>""", unsafe_allow_html=True)
 
     st.divider()
 
     if not history:
-        st.info("No scans recorded yet this session. Go to the scan page and upload a face image to get started.")
+        st.markdown(f"""<div style="font-size:12px;color:{T['muted']};
+            padding:8px;">No scans yet. Upload a face image to get started.</div>""",
+            unsafe_allow_html=True)
     else:
-        st.caption(
-            f"{scans} scan{'s' if scans != 1 else ''} recorded · "
-            "All data deleted automatically when browser is closed.")
+        st.markdown(f"""<div style="font-size:11px;color:{T['muted']};
+            margin-bottom:8px;">{scans} scan{'s' if scans != 1 else ''} recorded
+            · Deleted when browser closes</div>""", unsafe_allow_html=True)
 
         for i, h in enumerate(history, 1):
-            verdict_label = h['verdict']
+            vcol = (T['bar_fake'] if h['verdict']=="FAKE"
+                    else T['bar_ok'] if h['verdict']=="REAL" else "#7B6EBB")
             with st.expander(
-                f"Scan {i} of {scans} — {h['time']} — {h['file']} — {verdict_label} {h['conf']:.0f}%",
+                f"#{i}  {h['time']}  ·  {h['file']}  ·  {h['verdict']}  {h['conf']:.0f}%",
                 expanded=(i == len(history))
             ):
-                col1, col2, col3, col4 = st.columns(4)
-                with col1: st.metric("Verdict", h['verdict'])
-                with col2: st.metric("Confidence", f"{h['conf']:.1f}%")
-                with col3: st.metric("CNN score", f"{h['cnn']:.1f}%")
-                with col4: st.metric("AE error", f"{h['ae']:.4f}")
+                # Compact 4-col metrics using HTML — avoids st.metric large font
+                st.markdown(f"""
+                <div style="display:grid;grid-template-columns:repeat(4,1fr);
+                     gap:8px;margin-bottom:10px;">
+                    <div style="background:{T['bg_sec']};border:1px solid {T['border']};
+                         border-radius:6px;padding:8px;text-align:center;">
+                        <div style="font-size:13px;font-weight:600;color:{vcol};">
+                            {h['verdict']}</div>
+                        <div style="font-size:10px;color:{T['muted']};">Verdict</div>
+                    </div>
+                    <div style="background:{T['bg_sec']};border:1px solid {T['border']};
+                         border-radius:6px;padding:8px;text-align:center;">
+                        <div style="font-size:13px;font-weight:600;color:{T['txt']};">
+                            {h['conf']:.1f}%</div>
+                        <div style="font-size:10px;color:{T['muted']};">Confidence</div>
+                    </div>
+                    <div style="background:{T['bg_sec']};border:1px solid {T['border']};
+                         border-radius:6px;padding:8px;text-align:center;">
+                        <div style="font-size:13px;font-weight:600;color:{T['txt']};">
+                            {h['cnn']:.1f}%</div>
+                        <div style="font-size:10px;color:{T['muted']};">CNN score</div>
+                    </div>
+                    <div style="background:{T['bg_sec']};border:1px solid {T['border']};
+                         border-radius:6px;padding:8px;text-align:center;">
+                        <div style="font-size:13px;font-weight:600;color:{T['txt']};">
+                            {h['ae']:.4f}</div>
+                        <div style="font-size:10px;color:{T['muted']};">AE error</div>
+                    </div>
+                </div>
+                <div style="font-size:10px;color:{T['muted']};margin-bottom:8px;
+                     font-family:monospace;">
+                    {h['rid']} · {h['file']} · {h['time']}
+                </div>""", unsafe_allow_html=True)
 
-                st.markdown("---")
-                rid = h['rid']
-                fn = h['file']
-                tm = h['time']
-                st.caption(
-                    f"Result ID: {rid} | File: {fn} | Time: {tm} | Session: {sess}"
-                )
-
-                # What this verdict means
                 if h['verdict'] == "FAKE":
-                    st.error("FAKE — The AI detected manipulation signatures in this image.")
+                    st.markdown(f"""<div style="font-size:11px;color:{T['bar_fake']};
+                        background:{T['fake_bg']};border-left:3px solid {T['bar_fake']};
+                        padding:6px 10px;border-radius:4px;">
+                        FAKE — manipulation signatures detected.</div>""",
+                        unsafe_allow_html=True)
                 elif h['verdict'] == "REAL":
-                    st.success("REAL — No significant manipulation detected. Image appears authentic.")
+                    st.markdown(f"""<div style="font-size:11px;color:{T['bar_ok']};
+                        background:{T['real_bg']};border-left:3px solid {T['bar_ok']};
+                        padding:6px 10px;border-radius:4px;">
+                        REAL — no significant manipulation detected.</div>""",
+                        unsafe_allow_html=True)
                 else:
-                    st.warning("UNCERTAIN — Signals were ambiguous. Expert review recommended.")
+                    st.markdown(f"""<div style="font-size:11px;color:#7B6EBB;
+                        background:{T['unc_bg']};border-left:3px solid #7B6EBB;
+                        padding:6px 10px;border-radius:4px;">
+                        UNCERTAIN — signals ambiguous. Expert review recommended.</div>""",
+                        unsafe_allow_html=True)
 
     st.divider()
     ba, bb = st.columns(2)
@@ -2556,7 +2670,7 @@ def page_input():
     if consent and not st.session_state.consent_given:
         st.session_state.consent_given = True
         st.session_state.session_id = mk_session()
-        st.session_state.session_start = datetime.now().strftime("%H:%M")
+        st.session_state.session_start = datetime.now(ZoneInfo("Africa/Nairobi")).strftime("%H:%M")
         db_session(st.session_state.session_id)
         st.rerun()
 
@@ -2746,7 +2860,7 @@ def page_input():
                             "scan_mode": "Standard",
                             "upload_id": uid,
                             "session_id": st.session_state.session_id,
-                            "timestamp": datetime.now().strftime(
+                            "timestamp": datetime.now(ZoneInfo("Africa/Nairobi")).strftime(
                                 "%Y-%m-%d %H:%M:%S"),
                         })
 
@@ -2770,7 +2884,7 @@ def page_input():
                         if not isinstance(st.session_state.scan_history, list):
                             st.session_state.scan_history = []
                         st.session_state.scan_history.append({
-                            "time": datetime.now().strftime("%H:%M:%S"),
+                            "time": datetime.now(ZoneInfo("Africa/Nairobi")).strftime("%H:%M:%S"),
                             "file": uploaded.name,
                             "verdict": res["verdict"],
                             "conf": res["confidence"],
@@ -3094,7 +3208,7 @@ def page_output():
         st.download_button(
             label = "Download PDF forensic report",
             data = pdf,
-            file_name = f"{r['result_id']}_{datetime.now().strftime('%Y%m%d')}.pdf",
+            file_name = f"{r['result_id']}_{datetime.now(ZoneInfo("Africa/Nairobi")).strftime('%Y%m%d')}.pdf",
             mime = "application/pdf",
             type = "primary")
 
